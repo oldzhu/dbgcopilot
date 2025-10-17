@@ -9,7 +9,7 @@ description = "Debugger Copilot POC for GDB/LLDB"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Debugger Copilot" }]
-license = { text = "TBD" }
+license = { text = "Apache-2.0 WITH LLVM-exception" }
 dependencies = []
 
 [tool.pytest.ini_options]

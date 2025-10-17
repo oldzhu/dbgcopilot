@@ -1,0 +1,13 @@
+SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+This project is licensed under the Apache License, Version 2.0 with the LLVM Exceptions,
+matching LLDB/LLVM licensing.
+
+Authoritative texts:
+- Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+- LLVM Exceptions to the Apache 2.0 License: https://llvm.org/LICENSE.txt
+- SPDX Exception reference: https://spdx.org/licenses/LLVM-exception.html
+
+You may use this code under the terms of the above license and exception. Where practical,
+include the SPDX identifier in source files:
+  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
