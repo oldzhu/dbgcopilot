@@ -1,0 +1,11 @@
+provider: env  # openai|anthropic|local|env
+model: auto
+temperature: 0.2
+auto:
+  max_steps: 4
+timeouts:
+  command_seconds: 8
+output:
+  truncate_chars: 20000
+safety:
+  safe_mode: true

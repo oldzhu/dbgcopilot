@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbgcopilot"
+version = "0.0.1"
+description = "Debugger Copilot POC for GDB/LLDB"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Debugger Copilot" }]
+license = { text = "TBD" }
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+addopts = "-q"

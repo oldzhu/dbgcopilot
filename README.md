@@ -1,0 +1,49 @@
+Debugger Copilot (POC)
+
+Overview
+--------
+An AI-assisted debugger copilot for GDB (and later LLDB), focused on:
+- Summarizing and analyzing command outputs
+- Suggesting next debugging commands
+- Goal-driven planning and optional auto mode
+
+POC UX
+------
+- Option 1: Nested copilot> inside the debugger for all interactions
+- Hybrid view: optional Markdown/HTML summary refreshed to a file for side viewing
+
+Current Status
+--------------
+This repository contains the initial skeleton and placeholders (no heavy logic yet):
+- GDB plugin command `copilot` with minimal subcommands
+- Core scaffolding, prompt templates, config, and test stubs
+
+Quick Start (GDB POC)
+---------------------
+1) Ensure Python 3.11+ and dependencies installed in your environment.
+2) In GDB, source the plugin file:
+   (gdb) source /absolute/path/to/plugins/gdb/copilot_cmd.py
+3) Try the command:
+   (gdb) copilot
+   (gdb) copilot new
+   (gdb) copilot ask "What should I run first?"  # placeholder
+
+Notes
+-----
+- This POC primarily uses prompt templates to drive behaviors.
+- GDB Python API is used in-process; LLDB support will follow with a similar plugin.
+- The auto mode and LangChain integration will be added in subsequent iterations.
+
+Project Layout
+--------------
+- src/dbgcopilot/...
+- plugins/gdb/...
+- prompts/...
+- configs/default.yaml
+- sessions/ (runtime)
+- reports/ (runtime)
+- tests/ (stubs)
+
+License
+-------
+TBD
