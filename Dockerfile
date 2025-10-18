@@ -12,7 +12,7 @@ WORKDIR /workspace
 
 # Ensure LLDB and pytest are available without relying on pip
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    lldb python3-pytest python3-pip python3-setuptools \
+    lldb python3-pytest python3-pip python3-setuptools python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # Ensure pip is up-to-date so `python3 -m pip` works in the devcontainer postCreateCommand
