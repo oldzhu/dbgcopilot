@@ -10,8 +10,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /workspace
 
-# Install Python test tooling globally in container (no local venv required)
-RUN pip3 install --no-cache-dir pytest
+# Ensure LLDB and pytest are available without relying on pip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    lldb python3-pytest \
+    && rm -rf /var/lib/apt/lists/*
 
 # Default command: drop into bash
 CMD ["bash"]
