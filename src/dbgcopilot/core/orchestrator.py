@@ -6,6 +6,7 @@ and manage session state. Currently a minimal placeholder.
 from __future__ import annotations
 
 from typing import Optional
+from dbgcopilot.llm import providers
 
 
 class AgentOrchestrator:
@@ -23,7 +24,17 @@ class AgentOrchestrator:
 
     def ask(self, question: str) -> str:
         """Placeholder ask handler; returns a canned response for now."""
-        # TODO: integrate prompt templates & LLM
+        # Use selected provider from state if available
+        pname = getattr(self.state, "selected_provider", None) or self.state.config.get("llm_provider")
+        if pname:
+            prov = providers.get_provider(pname)
+            if prov:
+                try:
+                    return prov.ask(question)
+                except Exception as e:
+                    return f"[copilot] LLM provider error: {e}"
+
+        # fallback placeholder
         return (
             "[copilot] (placeholder) I would likely start with 'bt' to inspect the stack.\n"
             "Would you like me to execute 'bt'? (y/N)"

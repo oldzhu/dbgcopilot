@@ -20,3 +20,5 @@ class SessionState:
     attempts: List[Attempt] = field(default_factory=list)
     last_output: str = ""
     config: Dict[str, str] = field(default_factory=dict)
+    # selected LLM provider name
+    selected_provider: str = "mock-local"

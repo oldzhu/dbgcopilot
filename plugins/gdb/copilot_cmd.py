@@ -39,54 +39,54 @@ ORCH: AgentOrchestrator | None = None
 BACKEND = GdbInProcessBackend()
 
 
-def _require_session() -> None:
+def _ensure_session() -> None:
+    """Ensure a session exists. Create one lazily if missing."""
+    global SESSION, ORCH
     if SESSION is None:
-        raise gdb.GdbError("No copilot session. Run 'copilot new' first.")
-
-
-class CopilotNew(gdb.Command):  # type: ignore
-    """Start a new copilot session and enter nested prompt (POC)."""
-
-    def __init__(self) -> None:
-        super().__init__("copilot new", gdb.COMMAND_USER)
-
-    def invoke(self, arg, from_tty):  # pragma: no cover - gdb environment
-        global SESSION, ORCH
         sid = str(uuid.uuid4())[:8]
         SESSION = SessionState(session_id=sid)
         ORCH = AgentOrchestrator(BACKEND, SESSION)
         BACKEND.initialize_session()
-        gdb.write(f"[copilot] New session: {sid}\n")
-        gdb.execute("python from dbgcopilot.plugins.gdb.repl import start_repl; start_repl()")
+        if gdb is not None:
+            gdb.write(f"[copilot] New session: {sid}\n")
 
 
-class CopilotAsk(gdb.Command):  # type: ignore
-    """Ask a question to copilot (outside nested prompt)."""
+class CopilotCmd(gdb.Command):  # type: ignore
+    """Single `copilot` command to launch the copilot> prompt.
 
-    def __init__(self) -> None:
-        super().__init__("copilot ask", gdb.COMMAND_USER)
-
-    def invoke(self, arg, from_tty):  # pragma: no cover
-        _require_session()
-        resp = ORCH.ask(arg)
-        gdb.write(resp + "\n")
-
-
-class CopilotSummary(gdb.Command):  # type: ignore
-    """Show a brief session summary."""
+    Usage inside gdb:
+      (gdb) copilot           # open copilot> prompt (creates session if needed)
+      (gdb) copilot new       # create a new session and open prompt
+    """
 
     def __init__(self) -> None:
-        super().__init__("copilot summary", gdb.COMMAND_USER)
+        super().__init__("copilot", gdb.COMMAND_USER)
 
-    def invoke(self, arg, from_tty):  # pragma: no cover
-        _require_session()
-        gdb.write(ORCH.summary() + "\n")
+    def invoke(self, arg, from_tty):  # pragma: no cover - gdb environment
+        global SESSION, ORCH
+        args = (arg or "").strip()
+        if args == "new":
+            # force new session
+            sid = str(uuid.uuid4())[:8]
+            SESSION = SessionState(session_id=sid)
+            ORCH = AgentOrchestrator(BACKEND, SESSION)
+            BACKEND.initialize_session()
+            gdb.write(f"[copilot] New session: {sid}\n")
+        else:
+            # ensure a session exists
+            _ensure_session()
+
+        # Start nested prompt directly
+        try:
+            from dbgcopilot.plugins.gdb.repl import start_repl
+            start_repl()
+        except Exception:
+            # Fallback to executing via gdb if direct import fails
+            gdb.execute("python from dbgcopilot.plugins.gdb.repl import start_repl; start_repl()")
 
 
 def register():  # pragma: no cover
-    CopilotNew()
-    CopilotAsk()
-    CopilotSummary()
+    CopilotCmd()
 
 
 if gdb is not None:  # pragma: no cover
