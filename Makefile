@@ -1,3 +1,21 @@
+PYTHON := python
+BUILD_DIR := dist
+
+.PHONY: build install-wheel test-smoke clean
+
+build:
+	$(PYTHON) -m build
+
+install-wheel: build
+	# install the latest wheel into the active environment
+	pip install --upgrade --force-reinstall $(BUILD_DIR)/*.whl
+
+test-smoke: install-wheel
+	# print plugin path and ensure the console script works
+	dbgcopilot-plugin-path
+
+clean:
+	rm -rf build $(BUILD_DIR) *.egg-info
 IMAGE ?= dbgcopilot-dev:latest
 WORKDIR ?= /workspace
 

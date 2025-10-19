@@ -22,9 +22,13 @@ except Exception:  # pragma: no cover
 
 def _ensure_paths():  # pragma: no cover - depends on runtime
     import os
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    # Add repository root and repo/src to sys.path so imports like
+    # `import dbgcopilot` work when the plugin is sourced inside GDB.
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    src_dir = os.path.join(repo_root, "src")
+    for p in (src_dir, repo_root):
+        if p and p not in sys.path:
+            sys.path.insert(0, p)
 
 
 _ensure_paths()

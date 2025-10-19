@@ -41,3 +41,19 @@ def _mock_ask(prompt: str) -> str:
 
 
 register_provider(Provider("mock-local", _mock_ask, {"desc": "Local deterministic mock provider"}))
+
+try:
+    # Lazy import of openrouter integration to avoid hard dependency for tests
+    from . import openrouter
+
+    def _openrouter_ask(prompt: str) -> str:
+        # openrouter.create_provider returns an ask function bound to session config if needed
+        ask_fn = openrouter.create_provider()
+        return ask_fn(prompt)
+
+    register_provider(Provider("openrouter", _openrouter_ask, {"desc": "OpenRouter API provider (requires OPENROUTER_API_KEY)"}))
+except Exception:
+    # If import fails (requests not installed), we simply don't register OpenRouter at import time
+    pass
+
+# (modelscope provider removed - keeping registry small for POC testing with OpenRouter)
