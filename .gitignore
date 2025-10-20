@@ -12,3 +12,16 @@ env/
 venv/
 reports/
 sessions/
+
+# Packaging/build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+*.egg
+*.whl
+pip-wheel-metadata/
+wheelhouse/
+
+# Demo build outputs
+examples/crash_demo/crash
