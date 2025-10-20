@@ -46,10 +46,11 @@ try:
     # Lazy import of openrouter integration to avoid hard dependency for tests
     from . import openrouter
 
+    # Cache a provider function bound to default env/session config; the orchestrator can supply per-session later
+    _openrouter_default = openrouter.create_provider()
+
     def _openrouter_ask(prompt: str) -> str:
-        # openrouter.create_provider returns an ask function bound to session config if needed
-        ask_fn = openrouter.create_provider()
-        return ask_fn(prompt)
+        return _openrouter_default(prompt)
 
     register_provider(Provider("openrouter", _openrouter_ask, {"desc": "OpenRouter API provider (requires OPENROUTER_API_KEY)"}))
 except Exception:

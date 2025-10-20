@@ -25,6 +25,7 @@ def _print_help():
         "  /help            Show this help",
         "  /new             Start a new copilot session",
         "  /summary         Show session summary",
+        "  /chatlog         Show chat Q/A transcript",
         "  /config          Configure LLM backend/settings (placeholder)",
         "  /exec <cmd>      Run a gdb command and record output",
         "  /goal <text>     Set debugging goal",
@@ -32,6 +33,7 @@ def _print_help():
         "  /llm use <name>  Switch to a provider",
         "  exit or quit     Leave copilot>",
         "Any other input is treated as a natural language question to the LLM.",
+        "Tip: Say 'run the program' or 'continue' and I'll propose a command and ask you to confirm (yes/y or no).",
     ]
     return "\n".join(lines)
 
@@ -74,6 +76,13 @@ def start_repl():  # pragma: no cover - gdb environment
                 gdb.write(f"[copilot] New session: {sid}\n")
             elif verb == "/summary":
                 gdb.write(ORCH.summary() + "\n")
+            elif verb == "/chatlog":
+                # Print entire transcript; keep it simple for now
+                if not SESSION.chatlog:
+                    gdb.write("[copilot] No chat yet.\n")
+                else:
+                    for line in SESSION.chatlog[-200:]:  # avoid flooding
+                        gdb.write(line + "\n")
             elif verb == "/config":
                 gdb.write(f"[copilot] Config: {SESSION.config}\n")
                 gdb.write(f"[copilot] Selected provider: {SESSION.selected_provider}\n")

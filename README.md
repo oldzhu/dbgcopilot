@@ -11,7 +11,8 @@ UX Summary
 ----------
 - Single `copilot` command inside GDB opens a nested `copilot>` prompt.
 - Natural language inputs go to the LLM; slash-commands control the session:
-  - `/help`, `/new`, `/summary`, `/config`, `/exec <gdb-cmd>`, `/goal <text>`, `/llm list`, `/llm use <name>`
+  - `/help`, `/new`, `/summary`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/goal <text>`, `/llm list`, `/llm use <name>`
+  - Natural prompts like "run the program" or "continue" will propose a concrete command and ask you to confirm (yes/y or no)
 
 Current Status
 --------------
@@ -19,7 +20,7 @@ Current Status
 - Console helpers:
   - `dbgcopilot-plugin-path` prints the installed plugin file path
   - `dbgcopilot-gdb` launches GDB with the package available on `sys.path` and preloads the plugin by default
-- Core scaffolding for orchestrator, state, and a mock GDB backend
+- Core scaffolding for orchestrator, state, and a GDB backend; default LLM provider is `openrouter`
 
 Install and Build
 -----------------
@@ -92,6 +93,7 @@ copilot> why is this crashing?
 copilot> /llm list
 copilot> /llm use openrouter
 copilot> /summary
+copilot> /chatlog
 copilot> exit
 ```
 
@@ -99,6 +101,7 @@ Notes
 -----
 - GDB runs an embedded Python that does not automatically use your venv. The launcher and the `~/.gdbinit` snippet above are convenient ways to make `import dbgcopilot` work consistently inside GDB.
 - For quick tests, you can always rely on `python import dbgcopilot.plugins.gdb.copilot_cmd` inside GDB to register the `copilot` command.
+- The assistant proposes exact commands and asks for confirmation before executing. Reply with `yes`/`y` to run or `no` to cancel; you can also reply with an alternative command (e.g., `continue`).
 
 Project Layout
 --------------

@@ -17,8 +17,11 @@ class SessionState:
     goal: str = ""
     mode: str = "interactive"  # or "auto"
     facts: List[str] = field(default_factory=list)
+    chatlog: List[str] = field(default_factory=list)  # alternating User:/Assistant: lines
     attempts: List[Attempt] = field(default_factory=list)
     last_output: str = ""
     config: Dict[str, str] = field(default_factory=dict)
     # selected LLM provider name
-    selected_provider: str = "mock-local"
+    selected_provider: str = "openrouter"
+    # pending debugger command awaiting user confirmation
+    pending_cmd: Optional[str] = None

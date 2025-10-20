@@ -34,24 +34,49 @@ def _ask_openrouter(prompt: str, meta: dict | None = None, session_config: dict 
     if not key:
         raise RuntimeError("OpenRouter API key not configured (OPENROUTER_API_KEY or session config)")
 
-    # Basic OpenRouter text generation endpoint (model-agnostic POC)
-    url = "https://openrouter.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    # OpenRouter chat completions endpoint (OpenAI-compatible)
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        # Optional but recommended headers for OpenRouter identification (non-sensitive)
+        "HTTP-Referer": os.environ.get("OPENROUTER_HTTP_REFERER", "https://github.com/oldzhu/dbgcopilot"),
+        "X-Title": os.environ.get("OPENROUTER_TITLE", "dbgcopilot"),
+    }
     # Minimal body: user prompt as system/user messages depending on model
+    # Determine model preference: meta -> session_config -> env -> default
+    model = (
+        (meta or {}).get("model")
+        or (session_config or {}).get("openrouter_model")
+        or os.environ.get("OPENROUTER_MODEL")
+        or "openai/gpt-4o-mini"
+    )
+
     body = {
-        "model": "gpt-4o-mini",  # default POC; users can override via meta
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 512,
         "temperature": 0.2,
     }
 
-    # Allow overriding model from meta
-    if meta and "model" in meta:
-        body["model"] = meta["model"]
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=20)
+    except Exception as e:  # requests.RequestException in most cases
+        raise RuntimeError(f"OpenRouter request failed: {e}") from e
 
-    resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
+    # If non-2xx, surface body text to aid debugging
+    if not (200 <= resp.status_code < 300):
+        text = (resp.text or "").strip()
+        snippet = text[:200].replace("\n", " ")
+        raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {snippet}")
+
+    # Parse JSON response; if not JSON, show a readable snippet
+    try:
+        data = resp.json()
+    except Exception as e:
+        snippet = (resp.text or "")[:200].replace("\n", " ")
+        raise RuntimeError(f"OpenRouter returned non-JSON response: {snippet}") from e
     # Expecting standard OpenAI-like shape: choices[0].message.content
     try:
         return data["choices"][0]["message"]["content"]
