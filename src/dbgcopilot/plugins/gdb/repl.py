@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover
 
 from dbgcopilot.core.orchestrator import AgentOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt
+from dbgcopilot.utils.io import color_text
 
 
 def _ctx():  # pragma: no cover - gdb environment
@@ -27,13 +28,17 @@ def _print_help():
         "  /summary         Show session summary",
         "  /chatlog         Show chat Q/A transcript",
         "  /config          Configure LLM backend/settings (placeholder)",
+        "  /debuginfod [on|off]  Show or toggle debuginfod setting",
+        "  /colors [on|off] Toggle colored output (default on)",
+    "  /prompts show    Show current prompt config",
+    "  /prompts reload  Reload prompts from configs/prompts.json",
         "  /exec <cmd>      Run a gdb command and record output",
         "  /goal <text>     Set debugging goal",
         "  /llm list        List available LLM providers",
         "  /llm use <name>  Switch to a provider",
         "  exit or quit     Leave copilot>",
         "Any other input is treated as a natural language question to the LLM.",
-        "Tip: Say 'run the program' or 'continue' and I'll propose a command and ask you to confirm (yes/y or no).",
+        "Tip: If you want me to execute a GDB command, I'll reply with <cmd>...</cmd> and run it automatically.",
     ]
     return "\n".join(lines)
 
@@ -86,6 +91,45 @@ def start_repl():  # pragma: no cover - gdb environment
             elif verb == "/config":
                 gdb.write(f"[copilot] Config: {SESSION.config}\n")
                 gdb.write(f"[copilot] Selected provider: {SESSION.selected_provider}\n")
+            elif verb == "/prompts":
+                sub = arg.strip().lower()
+                if sub == "show":
+                    try:
+                        cfg = ORCH.get_prompt_config()
+                        import json as _json
+                        src = cfg.get("_source", "defaults")
+                        txt = _json.dumps(cfg, indent=2, ensure_ascii=False)
+                        gdb.write(f"[copilot] Prompt source: {src}\n")
+                        gdb.write(txt + "\n")
+                    except Exception as e:
+                        gdb.write(f"[copilot] Error showing prompts: {e}\n")
+                elif sub == "reload":
+                    try:
+                        msg = ORCH.reload_prompts()
+                        gdb.write(msg + "\n")
+                    except Exception as e:
+                        gdb.write(f"[copilot] Error reloading prompts: {e}\n")
+                else:
+                    gdb.write("Usage: /prompts show | /prompts reload\n")
+            elif verb == "/colors":
+                sub = arg.strip().lower()
+                if sub in {"on", "off"}:
+                    SESSION.colors_enabled = (sub == "on")
+                    gdb.write(f"[copilot] Colors {'enabled' if SESSION.colors_enabled else 'disabled'}\n")
+                elif sub == "":
+                    gdb.write(f"[copilot] Colors are currently {'on' if SESSION.colors_enabled else 'off'}\n")
+                else:
+                    gdb.write("Usage: /colors [on|off]\n")
+            elif verb == "/debuginfod":
+                sub = arg.strip().lower()
+                if sub in {"on", "off"}:
+                    out = BACKEND.run_command(f"set debuginfod enabled {sub}")
+                    gdb.write(out + "\n")
+                elif sub == "":
+                    out = BACKEND.run_command("show debuginfod enabled")
+                    gdb.write(out + "\n")
+                else:
+                    gdb.write("Usage: /debuginfod [on|off]\n")
             elif verb == "/llm":
                 sub = arg.split(maxsplit=1) if arg else [""]
                 action = sub[0]
@@ -108,6 +152,11 @@ def start_repl():  # pragma: no cover - gdb environment
                 if not arg:
                     gdb.write("[copilot] Usage: /exec <gdb-cmd>\n")
                 else:
+                    # Echo the command like GDB does, then output (cyan)
+                    if SESSION.colors_enabled:
+                        gdb.write(color_text(arg, "cyan", bold=True, enable=True) + "\n")
+                    else:
+                        gdb.write(f"{arg}\n")
                     out = BACKEND.run_command(arg)
                     SESSION.last_output = out
                     SESSION.attempts.append(Attempt(cmd=arg, output_snippet=out[:160]))
@@ -122,8 +171,7 @@ def start_repl():  # pragma: no cover - gdb environment
         # Natural language: forward to orchestrator.ask
         try:
             resp = ORCH.ask(cmd)
-            SESSION.facts.append(f"Q: {cmd}")
-            SESSION.facts.append(f"A: {resp.splitlines()[0] if resp else ''}")
+            # Orchestrator already colorizes assistant messages and command echoes based on session setting.
             gdb.write(resp + "\n")
         except Exception as e:
             gdb.write(f"[copilot] Error: {e}\n")

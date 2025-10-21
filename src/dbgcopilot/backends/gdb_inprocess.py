@@ -49,7 +49,8 @@ class GdbInProcessBackend:
 
         for part in parts or [cmd.strip()]:
             try:
-                out = gdb.execute(part, to_string=True)
+                # Run as-if typed by a human (from_tty=True) but capture output (to_string=True)
+                out = gdb.execute(part, from_tty=True, to_string=True)
                 text = out if isinstance(out, str) else str(out)
             except Exception as e:  # gdb.error or others
                 text = f"[gdb error] {e}"
@@ -73,6 +74,8 @@ class GdbInProcessBackend:
                     if text and not text.endswith("\n"):
                         text += "\n"
                     text += bt
+            # For 'file' and similar loader commands, GDB usually prints 'Reading symbols...' when from_tty
+            # We've already run with from_tty=True above so such messages should be included in 'text'.
             outputs.append(text)
 
         return "\n".join(o for o in outputs if o)

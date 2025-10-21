@@ -12,7 +12,7 @@ UX Summary
 - Single `copilot` command inside GDB opens a nested `copilot>` prompt.
 - Natural language inputs go to the LLM; slash-commands control the session:
   - `/help`, `/new`, `/summary`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/goal <text>`, `/llm list`, `/llm use <name>`
-  - Natural prompts like "run the program" or "continue" will propose a concrete command and ask you to confirm (yes/y or no)
+  - Natural prompts like "run the program" or "continue" are sent to the LLM; when it wants to execute something, it replies with `<cmd>the-gdb-command</cmd>` and the command runs automatically.
 
 Current Status
 --------------
@@ -101,7 +101,7 @@ Notes
 -----
 - GDB runs an embedded Python that does not automatically use your venv. The launcher and the `~/.gdbinit` snippet above are convenient ways to make `import dbgcopilot` work consistently inside GDB.
 - For quick tests, you can always rely on `python import dbgcopilot.plugins.gdb.copilot_cmd` inside GDB to register the `copilot` command.
-- The assistant proposes exact commands and asks for confirmation before executing. Reply with `yes`/`y` to run or `no` to cancel; you can also reply with an alternative command (e.g., `continue`).
+- The assistant now uses an LLM-driven flow. If it decides to run a command, it will respond with `<cmd>…</cmd>` and the orchestrator executes it immediately. Otherwise, it answers normally.
 
 Project Layout
 --------------

@@ -1,4 +1,4 @@
-PYTHON := python
+PYTHON ?= python3
 BUILD_DIR := dist
 
 .PHONY: build install-wheel test-smoke clean

@@ -25,3 +25,5 @@ class SessionState:
     selected_provider: str = "openrouter"
     # pending debugger command awaiting user confirmation
     pending_cmd: Optional[str] = None
+    # UI preferences
+    colors_enabled: bool = True
