@@ -5,7 +5,7 @@ and manage session state. Currently a minimal placeholder.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, List
 import re
 from dbgcopilot.core.state import Attempt
 from dbgcopilot.llm import providers
@@ -118,16 +118,16 @@ class AgentOrchestrator:
         return d
 
     def ask(self, question: str) -> str:
-        """Always call the LLM with full session context and follow its <cmd> directive.
+        """LLM-driven with human-in-the-loop confirmations.
 
-        New contract (LLM-driven):
-        - Input: any natural language from the user (questions, confirmations, or instructions).
-        - Behavior: Orchestrator always sends the full prior chat transcript and prior debugging outputs
-          to the LLM with clear instructions. If the LLM replies with <cmd>...</cmd>, we execute that
-          command in the debugger and return the command output. Otherwise we return the LLM's reply.
-        - Safety/limits: If the composed context exceeds a simple character threshold, return a warning
-          prompting the user to summarize and start a new session (or start fresh) instead of calling the LLM.
-        - Output: Either the debugger command output when <cmd> is provided, or the assistant reply text.
+        Contract:
+        - The LLM proposes commands and asks for confirmation without <cmd>.
+        - After user confirms, the LLM replies with ONLY <cmd>...</cmd>. We then execute immediately,
+          echoing with gdb>, and send fresh output back for a single follow-up.
+        - We do not parse yes/no locally for command confirmations; the LLM governs when to emit <cmd>.
+        - Safety/limits: If context is too large, we prompt for 'summarize and new session' or 'new session'.
+          On those exact phrases, we reset the session locally to break the loop.
+        - Output: Either assistant guidance or executed command output (with gdb> echo).
         """
         text = (question or "").strip()
 
@@ -148,14 +148,49 @@ class AgentOrchestrator:
         MAX_CONTEXT_CHARS = int(self.prompt_config.get("max_context_chars", 16000))
         transcript_for_llm = "\n".join(prev_lines)
         if len(transcript_for_llm) > MAX_CONTEXT_CHARS:
-            warning = (
+            # Allow two exact control phrases to break the overflow loop without using the LLM.
+            choice = (text or "").strip().lower()
+            if choice in {"summarize and new session", "summarise and new session"}:
+                # Prefer an LLM-generated concise summary using a trimmed context; fallback to local summary.
+                try:
+                    prev_summary = _llm_summarize_session(self)
+                except Exception:
+                    prev_summary = self.summary()
+                try:
+                    import uuid as _uuid
+                    self.state.session_id = str(_uuid.uuid4())[:8]
+                except Exception:
+                    pass
+                # Clear heavy history
+                self.state.chatlog.clear()
+                self.state.attempts.clear()
+                self.state.facts.clear()
+                self.state.last_output = ""
+                # Seed new session with the summary as a fact for future context
+                if prev_summary:
+                    self.state.facts.append(f"Summary: {prev_summary.splitlines()[0][:160]}")
+                return (
+                    f"[copilot] Started a new session: {self.state.session_id}\n"
+                    "Here is a brief summary of the previous session for reference:\n"
+                    + prev_summary
+                )
+            if choice in {"new session", "start new session", "new"}:
+                try:
+                    import uuid as _uuid
+                    self.state.session_id = str(_uuid.uuid4())[:8]
+                except Exception:
+                    pass
+                self.state.chatlog.clear()
+                self.state.attempts.clear()
+                self.state.facts.clear()
+                self.state.last_output = ""
+                return f"[copilot] Started a fresh session: {self.state.session_id}"
+            # Otherwise, display the prompt without appending to chat (to avoid growing context further).
+            return (
                 "[copilot] Your session context is quite large. Would you like me to summarize the "
                 "current session and start a new one from that summary, or start a fresh session "
                 "without a summary? Reply with 'summarize and new session' or 'new session'."
             )
-            # Record the prompt to the chatlog
-            self.state.chatlog.append(f"Assistant: {warning}")
-            return warning
 
         # A small context block with high-signal items we still pass along explicitly
         # (Some LLMs benefit from repeated short context fields.)
@@ -208,49 +243,20 @@ class AgentOrchestrator:
                     else:
                         answer = prov.ask(primed_question)
 
-                    # Record the raw assistant reply first
+                    # Record raw exchange
                     self.state.chatlog.append(f"User: {question.strip()}")
-                    # Store uncolored in chatlog for clean logs
                     self.state.chatlog.append(f"Assistant: {answer.strip()}")
                     self.state.facts.append(f"Q: {question.strip()}")
                     self.state.facts.append(f"A: {(answer.splitlines()[0] if answer else '').strip()}")
 
-                    # If the assistant returned a <cmd>...</cmd>, execute it and return the output
+                    # If the assistant returned a <cmd>...</cmd>, execute it immediately (LLM only does this after user confirmation per prompt)
                     m = re.search(r"<cmd>\s*([\s\S]*?)\s*</cmd>", answer, re.IGNORECASE)
                     if m:
-                        cmd = m.group(1).strip()
-                        try:
-                            # Prepend an echo of the command for better UX parity with typing in GDB
-                            echoed = f"{cmd}\n"
-                            out = self.backend.run_command(cmd)
-                            if out:
-                                out = echoed + out
-                            else:
-                                out = echoed
-                            self.state.last_output = out
-                        except Exception as e:
-                            out = f"[copilot] Error running '{cmd}': {e}"
-                        # Record attempt and output in chatlog
-                        self.state.attempts.append(Attempt(cmd=cmd, output_snippet=(out or "")[:160]))
-                        # Include a clear execution marker in chat for full-context future turns
-                        self.state.chatlog.append(f"Assistant: (executed) {cmd}\n" + (out or ""))
-                        # Record top line as a fact
-                        if out:
-                            first = out.splitlines()[0]
-                            self.state.facts.append(f"O: {first}")
-                        # Colorize full output when returning to REPL
-                        if getattr(self.state, "colors_enabled", True):
-                            # Command echo cyan, output default
-                            lines = (out or "").splitlines()
-                            if lines:
-                                lines[0] = color_text(lines[0], "cyan", bold=True, enable=True)
-                            return "\n".join(lines)
-                        return out or ""
+                        exec_cmd = m.group(1).strip()
+                        return _execute_and_follow_up(self, exec_cmd)
 
-                    # No command tag -> return assistant message as-is
-                    if getattr(self.state, "colors_enabled", True):
-                        return color_text(answer, "green", enable=True)
-                    return answer
+                    # Otherwise return assistant message as-is
+                    return color_text(answer, "green", enable=True) if getattr(self.state, "colors_enabled", True) else answer
                 except Exception as e:
                     msg = f"[copilot] LLM provider error: {e}"
                     if getattr(self.state, "colors_enabled", True):
@@ -327,14 +333,20 @@ def _extract_command_like(text: str) -> Optional[str]:
     m = re.search(r"`([^`]+)`", text)
     if m:
         cand = m.group(1).strip()
+        if cand.lower().startswith("gdb> "):
+            cand = cand[5:].strip()
         return cand if _is_likely_gdb_command(cand) else None
     m = re.search(r"\"([^\"]+)\"", text)
     if m:
         cand = m.group(1).strip()
+        if cand.lower().startswith("gdb> "):
+            cand = cand[5:].strip()
         return cand if _is_likely_gdb_command(cand) else None
     m = re.search(r"'([^']+)'", text)
     if m:
         cand = m.group(1).strip()
+        if cand.lower().startswith("gdb> "):
+            cand = cand[5:].strip()
         return cand if _is_likely_gdb_command(cand) else None
     # As a fallback, scan lines for a likely command suggestion
     for ln in text.splitlines():
@@ -389,5 +401,168 @@ def _wants_chinese(text: str) -> bool:
         return _re.search(r"[\u4e00-\u9fff]", text) is not None
     except Exception:
         return False
+
+
+# Intentionally do not interpret user confirmations locally; the LLM will
+# decide when to emit <cmd>...</cmd> after user confirmation per the prompt.
+
+
+def _extract_commands_list(text: str) -> List[str]:
+    """Extract a small list of GDB commands from assistant text.
+
+    Supports:
+    - ```gdb\n<cmd>\n<cmd>\n```
+    - Lines beginning with 'gdb> '
+    - A single line with ';' separated commands
+    """
+    if not text:
+        return []
+    cmds: List[str] = []
+    # Fenced gdb block
+    fence = re.search(r"```gdb\s*\n([\s\S]*?)```", text, re.IGNORECASE)
+    if fence:
+        body = fence.group(1)
+        for ln in body.splitlines():
+            line = ln.strip()
+            if not line:
+                continue
+            if line.lower().startswith("gdb> "):
+                line = line[5:].strip()
+            if _is_likely_gdb_command(line):
+                cmds.append(line)
+        return cmds
+    # Lines starting with gdb>
+    for ln in text.splitlines():
+        line = ln.strip()
+        if line.lower().startswith("gdb> "):
+            cand = line[5:].strip()
+            if _is_likely_gdb_command(cand):
+                cmds.append(cand)
+    if cmds:
+        return cmds
+    # Inline backticks containing commands, possibly multiple
+    backticked = re.findall(r"`([^`]+)`", text)
+    for seg in backticked:
+        cand = seg.strip()
+        if cand.lower().startswith("gdb> "):
+            cand = cand[5:].strip()
+        # split on ';' or newlines if the segment has multiple
+        parts = [p.strip() for p in re.split(r"[;\n]+", cand) if p.strip()]
+        for p in parts:
+            if _is_likely_gdb_command(p):
+                cmds.append(p)
+    if cmds:
+        return cmds
+    # Single-line semi-colon separated inline proposal
+    inline = _extract_command_like(text)
+    if inline:
+        parts = [p.strip() for p in re.split(r"[;\n]+", inline) if p.strip()]
+        return [p for p in parts if _is_likely_gdb_command(p)]
+    return []
+
+
+def _format_confirmation_message(cmds: List[str], colors: bool = True) -> str:
+    echo_lines = [f"gdb> {c}" for c in cmds]
+    if colors:
+        echo_lines = [color_text(l, "cyan", bold=True, enable=True) for l in echo_lines]
+    body = "\n".join(echo_lines)
+    return f"[copilot] I plan to run:\n{body}\nConfirm? (yes/no)"
+
+
+def _prefix_gdb_echo(cmd: str, colors: bool = True) -> str:
+    line = f"gdb> {cmd}"
+    return color_text(line, "cyan", bold=True, enable=True) if colors else line
+
+
+def _call_llm(provider_name: str, question: str, state) -> str:
+    prov = providers.get_provider(provider_name)
+    if provider_name == "openrouter":
+        from dbgcopilot.llm import openrouter as _or
+        ask_fn = _or.create_provider(session_config=state.config)
+        return ask_fn(question)
+    return prov.ask(question) if prov else ""
+
+
+def _execute_and_format(backend, cmd: str, colors: bool) -> str:
+    try:
+        out = backend.run_command(cmd)
+        echoed = _prefix_gdb_echo(cmd, colors=colors)
+        full = f"{echoed}\n{out}" if out else echoed
+        return full
+    except Exception as e:
+        return f"[copilot] Error running '{cmd}': {e}"
+
+
+def _llm_summarize_session(self) -> str:
+        """Ask the LLM for a concise session summary using trimmed, high-signal context.
+
+        Returns plain text. Falls back to local summary on provider errors.
+        """
+        dbg = getattr(self.backend, "name", "debugger")
+        goal = (self.state.goal or "").strip()
+        attempts = [a for a in self.state.attempts[-5:] if isinstance(a, Attempt)]
+        attempts_txt = "\n".join(f"- {a.cmd}: {a.output_snippet}" for a in attempts if getattr(a, "output_snippet", ""))
+        last_out = head_tail_truncate(self.state.last_output or "", 1200)
+        # Use only the last ~40 chat lines to avoid bloat
+        chat_tail = self.state.chatlog[-40:]
+        chat_txt = "\n".join(chat_tail)
+        # Build a compact prompt for summarization
+        prompt = (
+            "You are a helpful debugging assistant. Produce a concise summary of the session below.\n"
+            "Keep it to 5-8 bullet points, plus one short suggested next step if relevant.\n"
+            "Do NOT include any preamble or extra text; output only the summary text.\n\n"
+            + (f"Goal: {goal}\n" if goal else "")
+            + (f"Recent commands and snippets:\n{attempts_txt}\n" if attempts_txt else "")
+            + (f"Last output (truncated):\n{last_out}\n" if last_out else "")
+            + (f"Recent chat (tail):\n{chat_txt}\n" if chat_txt else "")
+            + "\nSummary:"
+        )
+        pname = getattr(self.state, "selected_provider", None) or self.state.config.get("llm_provider")
+        if pname:
+            try:
+                return _call_llm(pname, prompt, self.state)
+            except Exception:
+                pass
+        # Fallback to local summary
+        return self.summary()
+
+
+def _execute_and_follow_up(self, exec_cmd: str) -> str:
+    """Execute commands, record state, then call LLM once with the fresh output for guidance.
+
+    Returns a message for the user: includes the executed output, and then the LLM's follow-up proposal
+    (with confirmation) or its summary.
+    """
+    colors = getattr(self.state, "colors_enabled", True)
+    out = _execute_and_format(self.backend, exec_cmd, colors=colors)
+    self.state.last_output = out
+    self.state.attempts.append(Attempt(cmd=exec_cmd, output_snippet=(out or "")[:160]))
+    self.state.chatlog.append(f"Assistant: (executed) {exec_cmd}\n" + (out or ""))
+    if out:
+        self.state.facts.append(f"O: {out.splitlines()[0]}")
+
+    # Send the output back to the LLM for one follow-up
+    dbg = getattr(self.backend, "name", "debugger")
+    wants_zh = False  # reuse prior detection is optional here
+    rules_lines = "\n".join(f"- {r}" for r in self.prompt_config.get("rules", []))
+    system_preamble = (
+        self.prompt_config.get("system_preamble", "").format(debugger=dbg)
+        + self.prompt_config.get("assistant_cmd_tag_instructions", "")
+        + ("Rules:\n" + rules_lines + "\n" if rules_lines else "")
+    )
+    followup_prompt = (
+        system_preamble
+        + "\nUser: Here is the command output. Decide the next step per the rules."
+        + "\nOutput:\n" + (self.state.last_output or "") + "\nAssistant:"
+    )
+
+    pname = getattr(self.state, "selected_provider", None) or self.state.config.get("llm_provider")
+    follow_answer = _call_llm(pname, followup_prompt, self.state) if pname else ""
+    if follow_answer:
+        self.state.chatlog.append("User: (system) provide output for follow-up")
+        self.state.chatlog.append(f"Assistant: {follow_answer.strip()}")
+        # Do not parse for <cmd> or generate local confirmations here; let the LLM propose and ask user.
+        return out + "\n\n" + (color_text(follow_answer, "green", enable=True) if colors else follow_answer)
+    return out
 
 

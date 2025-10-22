@@ -154,9 +154,9 @@ def start_repl():  # pragma: no cover - gdb environment
                 else:
                     # Echo the command like GDB does, then output (cyan)
                     if SESSION.colors_enabled:
-                        gdb.write(color_text(arg, "cyan", bold=True, enable=True) + "\n")
+                        gdb.write(color_text(f"gdb> {arg}", "cyan", bold=True, enable=True) + "\n")
                     else:
-                        gdb.write(f"{arg}\n")
+                        gdb.write(f"gdb> {arg}\n")
                     out = BACKEND.run_command(arg)
                     SESSION.last_output = out
                     SESSION.attempts.append(Attempt(cmd=arg, output_snippet=out[:160]))
