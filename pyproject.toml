@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 dbgcopilot-plugin-path = "dbgcopilot.cli:print_plugin_path"
 dbgcopilot-gdb = "dbgcopilot.gdbwrap:main"
+dbgcopilot-lldb = "dbgcopilot.lldbwrap:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
