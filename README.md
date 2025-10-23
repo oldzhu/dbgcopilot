@@ -20,6 +20,8 @@ Current Status
 - Console helpers:
   - `dbgcopilot-plugin-path` prints the installed plugin file path
   - `dbgcopilot-gdb` launches GDB with the package available on `sys.path` and preloads the plugin by default
+  - `dbgcopilot` starts a standalone `copilot>` REPL (outside any debugger); pick `/use gdb` to spawn a GDB subprocess
+  - LLDB is supported in the standalone REPL via `/use lldb` (subprocess backend)
 - Core scaffolding for orchestrator, state, and a GDB backend; default LLM provider is `openrouter`
 
 Install and Build
@@ -96,6 +98,40 @@ copilot> /summary
 copilot> /chatlog
 copilot> exit
 ```
+
+Standalone copilot> (no debugger)
+---------------------------------
+You can also start a standalone REPL without launching GDB yourself:
+
+```bash
+dbgcopilot
+```
+
+At the `copilot>` prompt, select a debugger and interact:
+
+```
+copilot> /help
+copilot> /use gdb
+copilot> /exec help where
+copilot> run the program until it crashes
+copilot> /llm use openrouter
+copilot> /llm key openrouter sk-...  # in-session only
+copilot> /summary
+copilot> quit
+```
+
+Using LLDB instead:
+
+```
+copilot> /use lldb
+copilot> /exec version
+copilot> /exec help thread backtrace
+```
+
+Notes:
+- The GDB subprocess backend sets pagination/width/height for non-interactive output and disables confirm prompts.
+- The LLDB subprocess backend sets auto-confirm and a simple prompt for robust interaction.
+- The assistant proposes exactly one command at a time and only executes after it returns `<cmd>…</cmd>`.
 
 Notes
 -----
