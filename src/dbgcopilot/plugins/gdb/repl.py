@@ -30,12 +30,15 @@ def _print_help():
         "  /config          Configure LLM backend/settings (placeholder)",
         "  /debuginfod [on|off]  Show or toggle debuginfod setting",
         "  /colors [on|off] Toggle colored output (default on)",
-    "  /prompts show    Show current prompt config",
-    "  /prompts reload  Reload prompts from configs/prompts.json",
+        "  /prompts show    Show current prompt config",
+        "  /prompts reload  Reload prompts from configs/prompts.json",
         "  /exec <cmd>      Run a gdb command and record output",
         "  /goal <text>     Set debugging goal",
-        "  /llm list        List available LLM providers",
-        "  /llm use <name>  Switch to a provider",
+        "  /llm list                List available LLM providers",
+        "  /llm use <name>          Switch to a provider",
+        "  /llm models [provider]   List models for provider (default: selected)",
+        "  /llm model [provider] <model>  Set the model for provider (default: selected)",
+        "  /llm key <provider> <api_key>  Set API key for provider (stored in-session)",
         "  exit or quit     Leave copilot>",
         "Any other input is treated as a natural language question to the LLM.",
         "Tip: If you want me to execute a GDB command, I'll reply with <cmd>...</cmd> and run it automatically.",
@@ -131,23 +134,76 @@ def start_repl():  # pragma: no cover - gdb environment
                 else:
                     gdb.write("Usage: /debuginfod [on|off]\n")
             elif verb == "/llm":
-                sub = arg.split(maxsplit=1) if arg else [""]
-                action = sub[0]
+                parts = arg.split() if arg else []
+                action = parts[0] if parts else ""
+                from dbgcopilot.llm import providers as _prov
+                sel = SESSION.selected_provider
                 if action == "list":
-                    from dbgcopilot.llm import providers as _prov
                     gdb.write("Available LLM providers:\n")
                     for p in _prov.list_providers():
                         gdb.write(f"- {p}\n")
-                elif action == "use" and len(sub) > 1:
-                    from dbgcopilot.llm import providers as _prov
-                    name = sub[1]
+                elif action == "use" and len(parts) >= 2:
+                    name = parts[1]
                     if _prov.get_provider(name) is None:
                         gdb.write(f"[copilot] Unknown provider: {name}\n")
                     else:
                         SESSION.selected_provider = name
                         gdb.write(f"[copilot] Selected provider: {name}\n")
+                elif action == "models":
+                    provider = parts[1] if len(parts) >= 2 else (sel or "")
+                    if not provider:
+                        gdb.write("[copilot] No provider selected. Use /llm use <name> first or pass a provider.\n")
+                    elif provider == "openrouter":
+                        try:
+                            from dbgcopilot.llm import openrouter as _or
+                            models = _or.list_models(SESSION.config)
+                            if not models:
+                                gdb.write("[copilot] No models returned. You may need to set an API key.\n")
+                            else:
+                                gdb.write("OpenRouter models:\n")
+                                for m in models:
+                                    gdb.write(f"- {m}\n")
+                        except Exception as e:
+                            gdb.write(f"[copilot] Error listing models: {e}\n")
+                    else:
+                        gdb.write(f"[copilot] Model listing not supported for provider: {provider}\n")
+                elif action == "model":
+                    # Set model for provider (default to selected)
+                    if len(parts) == 2:
+                        provider = sel
+                        model = parts[1]
+                    elif len(parts) >= 3:
+                        provider = parts[1]
+                        model = " ".join(parts[2:])
+                    else:
+                        provider = None
+                        model = None
+                    if not provider or not model:
+                        gdb.write("Usage: /llm model [provider] <model>\n")
+                    elif provider == "openrouter":
+                        SESSION.config["openrouter_model"] = model
+                        gdb.write(f"[copilot] OpenRouter model set to: {model}\n")
+                    else:
+                        gdb.write(f"[copilot] Setting model not supported for provider: {provider}\n")
+                elif action == "key":
+                    # /llm key <provider> <api_key>
+                    if len(parts) >= 3:
+                        provider = parts[1]
+                        api_key = " ".join(parts[2:]).strip()
+                        if provider == "openrouter":
+                            if api_key:
+                                SESSION.config["openrouter_api_key"] = api_key
+                                gdb.write("[copilot] OpenRouter API key set for this session.\n")
+                            else:
+                                gdb.write("[copilot] Missing API key.\n")
+                        else:
+                            gdb.write(f"[copilot] API key setting not supported for provider: {provider}\n")
+                    else:
+                        gdb.write("Usage: /llm key <provider> <api_key>\n")
                 else:
-                    gdb.write("Usage: /llm list | /llm use <name>\n")
+                    gdb.write(
+                        "Usage: /llm list | /llm use <name> | /llm models [provider] | /llm model [provider] <model> | /llm key <provider> <api_key>\n"
+                    )
             elif verb == "/exec":
                 if not arg:
                     gdb.write("[copilot] Usage: /exec <gdb-cmd>\n")

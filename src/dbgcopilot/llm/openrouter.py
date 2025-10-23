@@ -91,3 +91,48 @@ def create_provider(session_config: dict | None = None):
         return _ask_openrouter(prompt, meta=None, session_config=session_config)
 
     return ask
+
+
+def list_models(session_config: dict | None = None) -> list[str]:
+    """Return a list of available model IDs from OpenRouter.
+
+    Tries the public models endpoint; if an API key is available, it will be sent.
+    """
+    try:
+        import requests
+    except Exception as e:
+        raise RuntimeError("requests library is required to list OpenRouter models") from e
+
+    key = _get_api_key(None, session_config)
+    url = "https://openrouter.ai/api/v1/models"
+    headers = {
+        "Accept": "application/json",
+    }
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+    except Exception as e:
+        raise RuntimeError(f"OpenRouter models request failed: {e}") from e
+
+    if not (200 <= resp.status_code < 300):
+        text = (resp.text or "").strip()
+        snippet = text[:200].replace("\n", " ")
+        raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {snippet}")
+
+    try:
+        data = resp.json()
+    except Exception as e:
+        snippet = (resp.text or "")[:200].replace("\n", " ")
+        raise RuntimeError(f"OpenRouter returned non-JSON response: {snippet}") from e
+
+    models = []
+    try:
+        for m in data.get("data", []) or []:
+            mid = m.get("id") or m.get("name")
+            if isinstance(mid, str):
+                models.append(mid)
+    except Exception:
+        pass
+    return models
