@@ -71,12 +71,13 @@ def _ask_openrouter(prompt: str, meta: dict | None = None, session_config: dict 
         snippet = text[:200].replace("\n", " ")
         raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {snippet}")
 
-    # Parse JSON response; if not JSON, show a readable snippet
+    # Parse JSON response; if not JSON, show the raw response body for diagnosis
     try:
         data = resp.json()
     except Exception as e:
-        snippet = (resp.text or "")[:200].replace("\n", " ")
-        raise RuntimeError(f"OpenRouter returned non-JSON response: {snippet}") from e
+        raw = resp.text or ""
+        # Prefer showing full provider response to help troubleshooting
+        raise RuntimeError(f"OpenRouter returned non-JSON response:\n{raw}") from e
     # Expecting standard OpenAI-like shape: choices[0].message.content
     try:
         return data["choices"][0]["message"]["content"]

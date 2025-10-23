@@ -469,8 +469,8 @@ def _format_confirmation_message(cmds: List[str], colors: bool = True) -> str:
     return f"[copilot] I plan to run:\n{body}\nConfirm? (yes/no)"
 
 
-def _prefix_gdb_echo(cmd: str, colors: bool = True) -> str:
-    line = f"gdb> {cmd}"
+def _prefix_dbg_echo(cmd: str, label: str = "gdb", colors: bool = True) -> str:
+    line = f"{label}> {cmd}"
     return color_text(line, "cyan", bold=True, enable=True) if colors else line
 
 
@@ -486,7 +486,8 @@ def _call_llm(provider_name: str, question: str, state) -> str:
 def _execute_and_format(backend, cmd: str, colors: bool) -> str:
     try:
         out = backend.run_command(cmd)
-        echoed = _prefix_gdb_echo(cmd, colors=colors)
+        label = getattr(backend, "name", "debugger") or "debugger"
+        echoed = _prefix_dbg_echo(cmd, label=label, colors=colors)
         full = f"{echoed}\n{out}" if out else echoed
         return full
     except Exception as e:
