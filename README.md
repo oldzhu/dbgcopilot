@@ -21,7 +21,7 @@ Current Status
   - `dbgcopilot-plugin-path` prints the installed plugin file path
   - `dbgcopilot-gdb` launches GDB with the package available on `sys.path` and preloads the plugin by default
   - `dbgcopilot` starts a standalone `copilot>` REPL (outside any debugger); pick `/use gdb` to spawn a GDB subprocess
-  - LLDB is supported in the standalone REPL via `/use lldb` (subprocess backend)
+  - LLDB is supported in the standalone REPL via `/use lldb`; it prefers the LLDB Python API when available and falls back to a subprocess backend otherwise
 - Core scaffolding for orchestrator, state, and a GDB backend; default LLM provider is `openrouter`
 
 Install and Build
@@ -130,7 +130,7 @@ copilot> /exec help thread backtrace
 
 Notes:
 - The GDB subprocess backend sets pagination/width/height for non-interactive output and disables confirm prompts.
-- The LLDB subprocess backend sets auto-confirm and a simple prompt for robust interaction.
+- The LLDB path prefers the Python API backend (robust, prompt-free capture). If the Python bindings are not available, it falls back to a subprocess backend that sets auto-confirm and a simple prompt.
 - The assistant proposes exactly one command at a time and only executes after it returns `<cmd>…</cmd>`.
 
 Notes
@@ -146,6 +146,34 @@ Project Layout
 - `prompts/` — LLM prompt templates
 - `configs/default.yaml` — defaults
 - `tests/` — test stubs
+
+LLDB Python API (optional)
+--------------------------
+For the best LLDB experience, the standalone REPL will use the LLDB Python API to execute commands and capture output (similar to in-process LLDB). If the `lldb` Python module is not present, we automatically fall back to a subprocess backend.
+
+Install the `lldb` Python module via your platform tools:
+
+- Ubuntu/Debian:
+
+```bash
+sudo apt update
+sudo apt install lldb python3-lldb  # or: sudo apt install python3-lldb-<version>
+```
+
+- macOS (Xcode/Command Line Tools):
+
+```bash
+xcode-select --install   # if needed
+xcrun python3 -c 'import lldb; print(lldb.__version__)'
+```
+
+- Conda (cross-platform):
+
+```bash
+conda install -c conda-forge lldb
+```
+
+If the import still fails, ensure you are using the Python that ships with (or can see) your LLDB installation.
 
 License
 -------

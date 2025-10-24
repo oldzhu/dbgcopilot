@@ -24,6 +24,10 @@ class LldbSubprocessBackend:
         self.child: Optional[pexpect.spawn] = None  # type: ignore
         self._default_prompt_re = re.compile(r"\(lldb\)\s", re.MULTILINE)
         self._prompt_re: Optional[re.Pattern[str]] = None
+        # Tracking for reliability hints
+        self._empty_count: int = 0
+        self._empty_threshold: int = 2
+        self._suggested_once: bool = False
 
     def initialize_session(self) -> None:
         if pexpect is None:
@@ -100,6 +104,8 @@ class LldbSubprocessBackend:
             try:
                 out = self._send_and_capture(part, timeout=timeout)
             except pexpect.TIMEOUT as e:  # type: ignore[attr-defined]
+                # Count timeouts as empty to trigger suggestions
+                self._empty_count += 1
                 outputs.append(f"[lldb timeout] {part}: {e}")
                 continue
             except pexpect.EOF as e:  # type: ignore[attr-defined]
@@ -108,8 +114,43 @@ class LldbSubprocessBackend:
             except Exception as e:
                 outputs.append(f"[lldb error] {part}: {e}")
                 continue
-            outputs.append(out.replace("\r\n", "\n"))
-        return "\n".join(o for o in outputs if o)
+            norm = (out or "").replace("\r\n", "\n")
+            if norm.strip():
+                self._empty_count = 0
+            else:
+                self._empty_count += 1
+            outputs.append(norm)
+
+        rendered = "\n".join(o for o in outputs if o)
+        # Reliability hint when we see consecutive empty or timeout outputs
+        if not self._suggested_once and self._empty_count >= self._empty_threshold:
+            self._suggested_once = True
+            hint = self._install_hint()
+            suggest_lines = [
+                "[copilot] Observed consecutive empty/timeout outputs from LLDB subprocess.",
+                "For more reliable capture, try the LLDB Python API backend (preferred).",
+                hint,
+                "If you're inside LLDB, prefer the in-process plugin:",
+                "  (lldb) command script import dbgcopilot.plugins.lldb.copilot_cmd; copilot",
+            ]
+            suggest_text = "\n".join(suggest_lines)
+            return (rendered + ("\n" if rendered else "")) + suggest_text
+        return rendered
+
+    @staticmethod
+    def _install_hint() -> str:
+        try:
+            import sys as _sys
+            plat = _sys.platform
+        except Exception:
+            plat = ""
+        if plat.startswith("linux"):
+            return "Hint: install LLDB Python bindings: sudo apt install lldb python3-lldb"
+        if plat == "darwin":
+            return "Hint: install Xcode CLT, then verify: xcrun python3 -c 'import lldb' (or conda install -c conda-forge lldb)"
+        if plat.startswith("win"):
+            return "Hint: use Conda to install LLDB Python: conda install -c conda-forge lldb"
+        return "Hint: install LLDB Python bindings (e.g., conda install -c conda-forge lldb)"
 
     def __del__(self):  # pragma: no cover
         try:

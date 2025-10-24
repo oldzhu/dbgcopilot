@@ -41,7 +41,7 @@ def _print_help() -> str:
             "copilot> commands:",
             "  /help                      Show this help",
             "  /use gdb                   Select GDB (subprocess backend)",
-            "  /use lldb                  Select LLDB (subprocess backend)",
+            "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
             "  /new                       Start a new copilot session",
             "  /summary                   Show session summary",
             "  /chatlog                   Show chat transcript",
@@ -58,6 +58,22 @@ def _print_help() -> str:
             "Any other input is sent to the LLM. To execute, it will reply with <cmd>…</cmd> then I'll run it.",
         ]
     )
+
+
+def _lldb_install_hint() -> str:
+    """Return a one-liner hint to install the LLDB Python module for this OS."""
+    try:
+        import sys as _sys
+        plat = _sys.platform
+    except Exception:
+        plat = ""
+    if plat.startswith("linux"):
+        return "Hint: install LLDB Python bindings: sudo apt install lldb python3-lldb"
+    if plat == "darwin":
+        return "Hint: install Xcode CLT, then: xcrun python3 -c 'import lldb' (or conda install -c conda-forge lldb)"
+    if plat.startswith("win"):
+        return "Hint: use Conda to install LLDB Python: conda install -c conda-forge lldb"
+    return "Hint: install LLDB Python bindings (e.g., conda install -c conda-forge lldb)"
 
 
 def _select_gdb() -> str:
@@ -140,18 +156,33 @@ def _handle_llm(cmd: str) -> str:
 def _select_lldb() -> str:
     global BACKEND, ORCH
     s = _ensure_session()
+    # Prefer the LLDB Python API backend (robust capture) and fall back to the
+    # subprocess backend only if the Python module isn't available.
     try:
-        from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
-    except Exception as e:
-        return f"[copilot] Failed to load LLDB subprocess backend: {e}"
-    BACKEND = LldbSubprocessBackend()
-    try:
+        from dbgcopilot.backends.lldb_api import LldbApiBackend
+        BACKEND = LldbApiBackend()
         BACKEND.initialize_session()
-    except Exception as e:
-        BACKEND = None
-        return f"[copilot] Failed to start lldb: {e}"
-    ORCH = AgentOrchestrator(BACKEND, s)
-    return "[copilot] Using LLDB (subprocess backend)."
+        ORCH = AgentOrchestrator(BACKEND, s)
+        return "[copilot] Using LLDB (API backend)."
+    except Exception as api_err:
+        try:
+            from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
+        except Exception as e:
+            return (
+                f"[copilot] Failed to load LLDB backends: API error: {api_err}; subprocess import error: {e}\n"
+                + _lldb_install_hint()
+            )
+        BACKEND = LldbSubprocessBackend()
+        try:
+            BACKEND.initialize_session()
+        except Exception as sub_err:
+            BACKEND = None
+            return (
+                f"[copilot] Failed to start lldb (API error: {api_err}); subprocess error: {sub_err}\n"
+                + _lldb_install_hint()
+            )
+        ORCH = AgentOrchestrator(BACKEND, s)
+        return "[copilot] Using LLDB (subprocess backend; Python API unavailable).\n" + _lldb_install_hint()
 
 
 def main(argv: Optional[list[str]] = None) -> int:
