@@ -175,6 +175,10 @@ conda install -c conda-forge lldb
 
 If the import still fails, ensure you are using the Python that ships with (or can see) your LLDB installation.
 
+Background and notes:
+- We document known issues with older LLDB Python packages (e.g., LLDB 18 on some distros) and why our devcontainer installs LLDB 19 by default.
+- See `docs/UNDER.md` for details and verification steps.
+
 License
 -------
 Apache-2.0 WITH LLVM-exception
