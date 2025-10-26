@@ -14,7 +14,7 @@ Context:
 - Reference: llvm/llvm-project#70453
 
 Decision:
-- We install LLDB 19 (lldb-19, python3-lldb-19, liblldb-19) in the devcontainer image. This eliminates the class of import problems present with 18.x and gives us a more reliable base for testing the LLDB subprocess backend.
+- We install LLDB 19 (lldb-19, python3-lldb-19, liblldb-19, liblldb-19-dev) in the devcontainer image. This eliminates the class of import problems present with 18.x and ensures the unversioned `liblldb.so` symlink is present (provided by the `-dev` package), which the `lldb/_lldb*.so` symlink expects.
 
 How we install LLDB 19:
 - The base image is `mcr.microsoft.com/devcontainers/cpp:ubuntu-24.04` (Noble).
@@ -22,6 +22,7 @@ How we install LLDB 19:
   - `lldb-19`
   - `python3-lldb-19`
   - `liblldb-19`
+  - `liblldb-19-dev` (provides the version-independent `liblldb.so` symlink)
 - We symlink `/usr/bin/lldb` to `/usr/bin/lldb-19` so `lldb` resolves to 19 by default.
 
 Verification steps:
@@ -29,6 +30,8 @@ Verification steps:
   - `lldb --version`
   - `lldb -P`
 - Verify Python import (standalone):
+  - Ensure the unversioned symlink exists (normally via `liblldb-19-dev`). If not, create it manually:
+    - `sudo ln -s /usr/lib/llvm-19/lib/liblldb.so.1 /usr/lib/llvm-19/lib/liblldb.so`
   - `PYTHONPATH="$(lldb -P)" python3 -c "import lldb; print('OK', lldb.__file__)"`
 - In our REPL (`dbgcopilot`):
   - `/use lldb`
