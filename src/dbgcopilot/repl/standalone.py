@@ -42,6 +42,7 @@ def _print_help() -> str:
             "  /help                      Show this help",
             "  /use gdb                   Select GDB (subprocess backend)",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
+            "  /colors on|off             Toggle colored output in REPL and debugger (LLDB/GDB)",
             "  /new                       Start a new copilot session",
             "  /summary                   Show session summary",
             "  /chatlog                   Show chat transcript",
@@ -289,6 +290,27 @@ def main(argv: Optional[list[str]] = None) -> int:
                     s.attempts.append(Attempt(cmd=arg, output_snippet=(out or "")[:160]))
                     if out:
                         _echo(out)
+                continue
+            if verb == "/colors":
+                choice = (arg or "").strip().lower()
+                if choice not in {"on", "off"}:
+                    _echo("Usage: /colors on|off")
+                    continue
+                enable = choice == "on"
+                s = _ensure_session()
+                s.colors_enabled = enable
+                # Try to toggle debugger-side coloring when possible
+                if BACKEND is not None:
+                    try:
+                        name = (getattr(BACKEND, "name", "") or "").lower()
+                        if name == "lldb":
+                            BACKEND.run_command(f"settings set use-color {'true' if enable else 'false'}")
+                        elif name == "gdb":
+                            # GDB 8.3+ supports style colors; ignore errors on older builds
+                            BACKEND.run_command(f"set style enabled {'on' if enable else 'off'}")
+                    except Exception:
+                        pass
+                _echo(f"[copilot] Colors {'enabled' if enable else 'disabled'}.")
                 continue
             if verb == "/goal":
                 _ensure_session().goal = arg

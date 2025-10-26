@@ -6,15 +6,17 @@ in-process approach but usable from the standalone copilot> REPL.
 from __future__ import annotations
 
 from typing import Optional, List
+from glob import glob
 import sys
 import os
 import subprocess
+import re
 
 
 class LldbApiBackend:
     name = "lldb"
 
-    def __init__(self, use_color: bool = False) -> None:
+    def __init__(self, use_color: bool = True) -> None:
         self._use_color = use_color
         self._lldb = None  # type: ignore
         self._dbg = None  # type: ignore
@@ -22,6 +24,29 @@ class LldbApiBackend:
         self._initialized_runtime = False
 
     def initialize_session(self) -> None:
+        # If LLDB_DEBUGSERVER_PATH is not set, detect lldb full and major version
+        # and point LLDB_DEBUGSERVER_PATH to /usr/lib/llvm-<major>/bin/lldb-server-<fullversion>.
+        try:
+            if os.environ.get("LLDB_DEBUGSERVER_PATH") is None:
+                ver_out = subprocess.check_output(["lldb", "--version"], text=True, stderr=subprocess.DEVNULL)
+                m = re.search(r"lldb\s+version\s+(\d+)\.(\d+)\.(\d+)", ver_out)
+                if m:
+                    major = m.group(1)
+                    full = ".".join(m.groups())
+                    base_dir = f"/usr/lib/llvm-{major}/bin"
+                    candidate_full = f"{base_dir}/lldb-server-{full}"
+                    if os.path.isfile(candidate_full):
+                        os.environ["LLDB_DEBUGSERVER_PATH"] = candidate_full
+                    else:
+                        candidate_major = f"{base_dir}/lldb-server-{major}"
+                        if os.path.isfile(candidate_major):
+                            os.environ["LLDB_DEBUGSERVER_PATH"] = candidate_major
+                        else:
+                            candidate_unver = f"{base_dir}/lldb-server"
+                            if os.path.isfile(candidate_unver):
+                                os.environ["LLDB_DEBUGSERVER_PATH"] = candidate_unver
+        except Exception:
+            pass
         # Try importing lldb conservatively; if it fails the probe, we abort and let caller fall back.
         lldb = self._try_import_lldb()
 
@@ -41,6 +66,58 @@ class LldbApiBackend:
         # Session-friendly defaults
         self._handle_command(f"settings set use-color {'true' if self._use_color else 'false'}")
         self._handle_command("settings set auto-confirm true")
+        self._configure_lldb_server()
+        
+
+    def _configure_lldb_server(self) -> None:
+        """Best-effort configuration of lldb-server path to avoid 'unable to locate lldb-server-<ver>'.
+
+        Strategy:
+        - Honor LLDB_SERVER_PATH if provided.
+        - Search common locations for lldb-server matching the installed version (19+).
+    - If found, set a few known `settings` entries that reference lldb-server.
+        This is a no-op on failure.
+        """
+        try:
+            # If user provided an explicit path, prefer it.
+            env_path = os.environ.get("LLDB_SERVER_PATH")
+            candidates: list[str] = []
+            if env_path and os.path.isfile(env_path):
+                candidates.append(env_path)
+            # Common locations for apt.llvm.org installs (Ubuntu 24.04):
+            # - /usr/bin/lldb-server-19, /usr/bin/lldb-server
+            # - /usr/lib/llvm-19/bin/lldb-server-19.*, /usr/lib/llvm-19/bin/lldb-server
+            patterns = [
+                "/usr/bin/lldb-server*",
+                "/usr/lib/llvm-*/bin/lldb-server*",
+            ]
+            for pat in patterns:
+                candidates.extend(glob(pat))
+            # Choose the longest (most specific) filename first (often includes version)
+            candidates = sorted({p for p in candidates if os.path.isfile(p)}, key=len, reverse=True)
+            if candidates:
+                path = candidates[0]
+                # Try a few known setting keys across LLDB versions
+                keys = [
+                    "target.lldb-server",
+                    "plugin.process.gdb-remote.lldb-server",
+                    "plugin.process.gdb-remote.lldb-server-path",
+                    "platform.plugin.remote-linux.lldb-server",
+                ]
+                for k in keys:
+                    self._handle_command(f"settings set {k} {path}")
+        except Exception:
+            # Best-effort only; ignore failures
+            pass
+        # On Linux, avoid requiring an external lldb-server for local debug by default.
+        try:
+            if sys.platform.startswith("linux"):
+                # If the setting exists, this disables using llgs for local debugging.
+                # This mirrors in-process behavior without needing a server binary on PATH.
+                self._handle_command("settings set platform.plugin.linux.use-llgs-for-local false")
+        except Exception:
+            # Best-effort; ignore if setting doesn't exist on this LLDB build.
+            pass
 
     def _try_import_lldb(self):
         """Import lldb in a conservative, crash-avoidant way.
@@ -115,12 +192,16 @@ class LldbApiBackend:
             return (err or "").rstrip("\n")
 
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
-        # Split into individual commands (newline/semicolon separated)
-        parts: List[str] = []
-        for chunk in (cmd or "").replace("\r", "\n").split("\n"):
-            parts.extend([p.strip() for p in chunk.split(";") if p.strip()])
-        if not parts:
-            parts = [cmd.strip()]
+        # Split into individual commands (newline/semicolon) but keep 'script ' intact
+        raw = (cmd or "").strip()
+        if raw.lower().startswith("script "):
+            parts = [raw]
+        else:
+            parts: List[str] = []
+            for chunk in raw.replace("\r", "\n").split("\n"):
+                parts.extend([p.strip() for p in chunk.split(";") if p.strip()])
+            if not parts:
+                parts = [raw]
 
         outputs: List[str] = []
         for part in parts:

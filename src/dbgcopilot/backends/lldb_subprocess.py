@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Optional, List
 import re
+import os
+from glob import glob
 
 try:
     import pexpect
@@ -58,6 +60,39 @@ class LldbSubprocessBackend:
             self._send_and_capture("settings set auto-confirm true")
         except Exception:
             pass
+        # Best-effort lldb-server configuration to avoid 'unable to locate lldb-server-<ver>'
+        try:
+            path = self._find_lldb_server()
+            if path:
+                # Try multiple known setting keys across LLDB versions
+                keys = [
+                    "target.lldb-server",
+                    "plugin.process.gdb-remote.lldb-server",
+                    "plugin.process.gdb-remote.lldb-server-path",
+                    "platform.plugin.remote-linux.lldb-server",
+                ]
+                for k in keys:
+                    try:
+                        self._send_and_capture(f"settings set {k} {path}")
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    def _find_lldb_server(self) -> Optional[str]:
+        env_path = os.environ.get("LLDB_SERVER_PATH")
+        if env_path and os.path.isfile(env_path):
+            return env_path
+        candidates: list[str] = []
+        patterns = [
+            "/usr/bin/lldb-server*",
+            "/usr/lib/llvm-*/bin/lldb-server*",
+        ]
+        for pat in patterns:
+            candidates.extend(glob(pat))
+        candidates = sorted({p for p in candidates if os.path.isfile(p)}, key=len, reverse=True)
+        return candidates[0] if candidates else None
+
 
     def _expect_prompt(self) -> str:
         if not self.child:
@@ -93,11 +128,16 @@ class LldbSubprocessBackend:
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
         if not self.child:
             raise RuntimeError("LLDB subprocess is not initialized; call initialize_session()")
-        parts: List[str] = []
-        for chunk in (cmd or "").replace("\r", "\n").split("\n"):
-            parts.extend([p.strip() for p in chunk.split(";") if p.strip()])
-        if not parts:
-            parts = [cmd.strip()]
+        # Avoid splitting Python after 'script ' — keep as a single command
+        raw = (cmd or "").strip()
+        if raw.lower().startswith("script "):
+            parts = [raw]
+        else:
+            parts: List[str] = []
+            for chunk in raw.replace("\r", "\n").split("\n"):
+                parts.extend([p.strip() for p in chunk.split(";") if p.strip()])
+            if not parts:
+                parts = [raw]
 
         outputs: List[str] = []
         for part in parts:
