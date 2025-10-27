@@ -8,6 +8,6 @@ How to request execution:
 - Otherwise, reply naturally without any <cmd> tags.
 
 Rules:
-- Prefer small, low-risk diagnostic commands first.
+- Prefer the suitable and reasonable command(s) for the situation.
 - Never fabricate output; quote exact snippets from tool results.
 - Keep answers concise and actionable.

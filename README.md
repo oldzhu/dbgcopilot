@@ -11,7 +11,7 @@ UX Summary
 ----------
 - Single `copilot` command inside GDB opens a nested `copilot>` prompt.
 - Natural language inputs go to the LLM; slash-commands control the session:
-  - `/help`, `/new`, `/summary`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/goal <text>`, `/llm list`, `/llm use <name>`
+  - `/help`, `/new`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/llm list`, `/llm use <name>`
   - Natural prompts like "run the program" or "continue" are sent to the LLM; when it wants to execute something, it replies with `<cmd>the-gdb-command</cmd>` and the command runs automatically.
 
 Current Status
@@ -94,7 +94,6 @@ copilot> /exec bt
 copilot> why is this crashing?
 copilot> /llm list
 copilot> /llm use openrouter
-copilot> /summary
 copilot> /chatlog
 copilot> exit
 ```
@@ -116,7 +115,6 @@ copilot> /exec help where
 copilot> run the program until it crashes
 copilot> /llm use openrouter
 copilot> /llm key openrouter sk-...  # in-session only
-copilot> /summary
 copilot> quit
 ```
 

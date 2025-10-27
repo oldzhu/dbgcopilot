@@ -122,12 +122,16 @@ class AgentOrchestrator:
 
         Contract:
         - The LLM proposes commands and asks for confirmation without <cmd>.
-        - After user confirms, the LLM replies with ONLY <cmd>...</cmd>. We then execute immediately,
-          echoing with gdb>, and send fresh output back for a single follow-up.
-        - We do not parse yes/no locally for command confirmations; the LLM governs when to emit <cmd>.
-        - Safety/limits: If context is too large, we prompt for 'summarize and new session' or 'new session'.
-          On those exact phrases, we reset the session locally to break the loop.
-        - Output: Either assistant guidance or executed command output (with gdb> echo).
+                    - After user confirms, the LLM replies with ONLY <cmd>...</cmd>. We execute it and return the output.
+                        We do not auto-continue; we wait for the next user input.
+                    - We do not parse yes/no locally for command confirmations; the LLM governs when to emit <cmd>.
+
+                    Agent mode (auto):
+                    - When SessionState.mode == 'auto', after executing a <cmd>, we automatically prompt the LLM to
+                        decide the next step until a final report (root cause and solution) is produced or a step limit is reached.
+
+                    Safety/limits: If context is too large, we prompt for 'summarize and new session' or 'new session'.
+                    Output: Either assistant guidance or executed command output (with debugger> echo).
         """
         text = (question or "").strip()
 
@@ -204,12 +208,25 @@ class AgentOrchestrator:
         # Language preference
         wants_zh = _wants_chinese(question)
 
-        rules_lines = "\n".join(f"- {r}" for r in self.prompt_config.get("rules", []))
-        system_preamble = (
-            self.prompt_config.get("system_preamble", "").format(debugger=dbg)
-            + self.prompt_config.get("assistant_cmd_tag_instructions", "")
-            + ("Rules:\n" + rules_lines + "\n" if rules_lines else "")
-        )
+        # Build preamble differently for agent mode (no confirmations, direct <cmd>)
+        mode_auto = (getattr(self.state, "mode", "interactive") or "interactive") == "auto"
+        all_rules = list(self.prompt_config.get("rules", []))
+        if mode_auto:
+            # Filter out rules that mention proposal/confirmation to avoid conflicts in agent mode
+            filtered_rules = [r for r in all_rules if "During proposal" not in r and "confirm" not in r.lower()]
+            rules_lines = "\n".join(f"- {r}" for r in filtered_rules)
+            system_preamble = (
+                self.prompt_config.get("system_preamble", "").format(debugger=dbg)
+                + ("\n" + self.prompt_config.get("agent_mode_preamble", ""))
+                + ("\nRules:\n" + rules_lines + "\n" if rules_lines else "")
+            )
+        else:
+            rules_lines = "\n".join(f"- {r}" for r in all_rules)
+            system_preamble = (
+                self.prompt_config.get("system_preamble", "").format(debugger=dbg)
+                + self.prompt_config.get("assistant_cmd_tag_instructions", "")
+                + ("Rules:\n" + rules_lines + "\n" if rules_lines else "")
+            )
 
         context_block = (
             (f"Goal: {goal}\n" if goal else "")
@@ -249,11 +266,11 @@ class AgentOrchestrator:
                     self.state.facts.append(f"Q: {question.strip()}")
                     self.state.facts.append(f"A: {(answer.splitlines()[0] if answer else '').strip()}")
 
-                    # If the assistant returned a <cmd>...</cmd>, execute it immediately (LLM only does this after user confirmation per prompt)
+                    # If the assistant returned a <cmd>...</cmd>, execute it.
                     m = re.search(r"<cmd>\s*([\s\S]*?)\s*</cmd>", answer, re.IGNORECASE)
                     if m:
                         exec_cmd = m.group(1).strip()
-                        return _execute_and_follow_up(self, exec_cmd)
+                        return _execute_and_maybe_auto(self, exec_cmd)
 
                     # Otherwise return assistant message as-is
                     return color_text(answer, "green", enable=True) if getattr(self.state, "colors_enabled", True) else answer
@@ -528,11 +545,14 @@ def _llm_summarize_session(self) -> str:
         return self.summary()
 
 
-def _execute_and_follow_up(self, exec_cmd: str) -> str:
-    """Execute commands, record state, then call LLM once with the fresh output for guidance.
+def _execute_and_maybe_auto(self, exec_cmd: str) -> str:
+    """Execute a command and, if in agent (auto) mode, continue autonomously until conclusion.
 
-    Returns a message for the user: includes the executed output, and then the LLM's follow-up proposal
-    (with confirmation) or its summary.
+    Default (interactive): execute once and return the output without triggering a follow-up.
+    Agent mode (auto): repeatedly ask the LLM for the next step using the latest output + context.
+      - If the LLM responds with <cmd>...</cmd>, execute it and iterate.
+      - Otherwise, treat the response as the final report and stop.
+      - A guard 'max_auto_steps' prevents unbounded loops.
     """
     colors = getattr(self.state, "colors_enabled", True)
     out = _execute_and_format(self.backend, exec_cmd, colors=colors)
@@ -542,28 +562,61 @@ def _execute_and_follow_up(self, exec_cmd: str) -> str:
     if out:
         self.state.facts.append(f"O: {out.splitlines()[0]}")
 
-    # Send the output back to the LLM for one follow-up
+    # If not in agent mode, return immediately (no automatic follow-up)
+    mode = getattr(self.state, "mode", "interactive") or "interactive"
+    if mode != "auto":
+        return out
+
+    # Agent mode loop - no confirmations; use agent preamble and filter rules
     dbg = getattr(self.backend, "name", "debugger")
-    wants_zh = False  # reuse prior detection is optional here
-    rules_lines = "\n".join(f"- {r}" for r in self.prompt_config.get("rules", []))
+    all_rules = list(self.prompt_config.get("rules", []))
+    filtered_rules = [r for r in all_rules if "During proposal" not in r and "confirm" not in r.lower()]
+    rules_lines = "\n".join(f"- {r}" for r in filtered_rules)
     system_preamble = (
         self.prompt_config.get("system_preamble", "").format(debugger=dbg)
-        + self.prompt_config.get("assistant_cmd_tag_instructions", "")
-        + ("Rules:\n" + rules_lines + "\n" if rules_lines else "")
+        + ("\n" + self.prompt_config.get("agent_mode_preamble", ""))
+        + ("\nRules:\n" + rules_lines + "\n" if rules_lines else "")
     )
-    followup_prompt = (
-        system_preamble
-        + "\nUser: Here is the command output. Decide the next step per the rules."
-        + "\nOutput:\n" + (self.state.last_output or "") + "\nAssistant:"
-    )
-
+    follow_instr = self.prompt_config.get("agent_followup_instruction", "Here is the latest output. Decide the next step.")
     pname = getattr(self.state, "selected_provider", None) or self.state.config.get("llm_provider")
-    follow_answer = _call_llm(pname, followup_prompt, self.state) if pname else ""
-    if follow_answer:
-        self.state.chatlog.append("User: (system) provide output for follow-up")
+    max_steps = int(self.prompt_config.get("max_auto_steps", 12))
+
+    transcript_parts: List[str] = []
+    transcript_parts.append(out)
+
+    for step in range(max_steps):
+        followup_prompt = (
+            system_preamble
+            + "\nUser: "
+            + follow_instr
+            + "\nOutput:\n" + (self.state.last_output or "")
+            + ("\n\nContext facts:\n" + "\n".join(self.state.facts[-10:]) if self.state.facts else "")
+            + "\nAssistant:"
+        )
+        follow_answer = _call_llm(pname, followup_prompt, self.state) if pname else ""
+        if not follow_answer:
+            break
+        self.state.chatlog.append("User: (system) agent-mode follow-up with latest output")
         self.state.chatlog.append(f"Assistant: {follow_answer.strip()}")
-        # Do not parse for <cmd> or generate local confirmations here; let the LLM propose and ask user.
-        return out + "\n\n" + (color_text(follow_answer, "green", enable=True) if colors else follow_answer)
-    return out
+
+        # If the assistant provided a command, execute and continue
+        m = re.search(r"<cmd>\s*([\s\S]*?)\s*</cmd>", follow_answer, re.IGNORECASE)
+        if m:
+            next_cmd = m.group(1).strip()
+            step_out = _execute_and_format(self.backend, next_cmd, colors=colors)
+            self.state.last_output = step_out
+            self.state.attempts.append(Attempt(cmd=next_cmd, output_snippet=(step_out or "")[:160]))
+            self.state.chatlog.append(f"Assistant: (executed) {next_cmd}\n" + (step_out or ""))
+            if step_out:
+                self.state.facts.append(f"O: {step_out.splitlines()[0]}")
+            transcript_parts.append("\n" + step_out)
+            continue
+
+        # Otherwise treat as final report and stop
+        final_txt = color_text(follow_answer, "green", enable=True) if colors else follow_answer
+        transcript_parts.append("\n\n" + final_txt)
+        break
+
+    return "\n\n".join([p for p in transcript_parts if p])
 
 

@@ -43,20 +43,19 @@ def _print_help() -> str:
             "  /use gdb                   Select GDB (subprocess backend)",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
             "  /colors on|off             Toggle colored output in REPL and debugger (LLDB/GDB)",
+            "  /agent on|off              Toggle agent mode (auto analysis and final report)",
             "  /new                       Start a new copilot session",
-            "  /summary                   Show session summary",
             "  /chatlog                   Show chat transcript",
             "  /config                    Show current config",
             "  /prompts show|reload       Show or reload prompt config",
             "  /exec <cmd>                Run a debugger command (after /use)",
-            "  /goal <text>               Set debugging goal",
             "  /llm list                  List LLM providers",
             "  /llm use <name>            Select provider",
             "  /llm models [provider]     List models for provider (OpenRouter)",
             "  /llm model [provider] <m>  Set model for provider (OpenRouter)",
             "  /llm key <provider> <key>  Set API key for provider",
             "  exit or quit               Leave copilot>",
-            "Any other input is sent to the LLM. To execute, it will reply with <cmd>…</cmd> then I'll run it.",
+            "Any other input is sent to the LLM.",
         ]
     )
 
@@ -188,7 +187,7 @@ def _select_lldb() -> str:
 
 def main(argv: Optional[list[str]] = None) -> int:
     _ensure_session()
-    _echo("[copilot] Standalone REPL. Type /help. Choose a debugger with /use gdb.")
+    _echo("[copilot] Standalone REPL. Type /help. Choose a debugger with /use <debugger> (gdb|lldb).")
     while True:
         try:
             line = input("copilot> ")
@@ -228,12 +227,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     globals()["ORCH"] = AgentOrchestrator(BACKEND, globals()["SESSION"])  # reload prompts per session
                 _echo(f"[copilot] New session: {sid}")
                 continue
-            if verb == "/summary":
-                if ORCH is None:
-                    _echo("[copilot] No debugger selected. Use /use gdb first.")
-                else:
-                    _echo(ORCH.summary())
-                continue
+            
             if verb == "/chatlog":
                 s = _ensure_session()
                 if not s.chatlog:
@@ -246,6 +240,16 @@ def main(argv: Optional[list[str]] = None) -> int:
                 s = _ensure_session()
                 _echo(f"[copilot] Config: {s.config}")
                 _echo(f"[copilot] Selected provider: {s.selected_provider}")
+                _echo(f"[copilot] Mode: {s.mode}")
+                continue
+            if verb == "/agent":
+                choice = (arg or "").strip().lower()
+                if choice not in {"on", "off"}:
+                    _echo("Usage: /agent on|off")
+                    continue
+                s = _ensure_session()
+                s.mode = "auto" if choice == "on" else "interactive"
+                _echo(f"[copilot] Agent mode {'enabled' if choice=='on' else 'disabled'}.")
                 continue
             if verb == "/prompts":
                 if arg.strip().lower() == "show":
@@ -312,10 +316,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         pass
                 _echo(f"[copilot] Colors {'enabled' if enable else 'disabled'}.")
                 continue
-            if verb == "/goal":
-                _ensure_session().goal = arg
-                _echo(f"[copilot] Goal set: {arg}")
-                continue
+            
             if verb == "/llm":
                 _echo(_handle_llm(arg))
                 continue

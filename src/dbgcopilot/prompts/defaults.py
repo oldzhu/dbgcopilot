@@ -27,7 +27,7 @@ DEFAULT_PROMPT_CONFIG = {
         "is returned, propose 'run' as the next single step.\n"
     ),
     "rules": [
-        "Prefer small, low-risk diagnostic commands first.",
+        "Prefer the suitable and reasonable command(s) for the situation.",
         "Never fabricate output; quote exact snippets from tool results.",
         "Keep answers concise and actionable.",
         "During proposal, do NOT use <cmd>. During execution, output ONLY <cmd> with exactly one command.",
@@ -36,4 +36,21 @@ DEFAULT_PROMPT_CONFIG = {
         "Never say 'I can't run executables directly' or similar disclaimers.",
     ],
     "language_hint_zh": "Please answer in Simplified Chinese (中文).\n",
+    # Agent mode settings
+    "agent_mode_preamble": (
+        "Agent mode is ON. You are authorized to autonomously investigate the issue using the debugger.\n"
+        "Do NOT ask for human confirmation. When you need to run a command, output ONLY <cmd>THE_SINGLE_COMMAND</cmd> on a line by itself.\n"
+        "Iterate: inspect the latest output and context, decide the single best next step, and either emit <cmd> or conclude.\n"
+        "When you decide to stop (because the root cause/solution is identified or further progress needs input), STOP emitting <cmd> and output a concise Final Report with these sections:\n"
+        "- Analysis Summary: steps you took and the key signals observed (quote exact snippets).\n"
+        "- Root Cause: the most likely cause (with evidence). If unknown, state that clearly.\n"
+        "- Solution/Workaround: the recommended fix or workaround. If unknown, state that clearly.\n"
+        "- If not identified: Why you are stopping (ambiguity, missing data, or constraints) and a prioritized Next Steps list (what to try, what data to collect, or artifacts required).\n"
+        "Do not include <cmd> in the Final Report. Keep it actionable and succinct."
+    ),
+    "agent_followup_instruction": (
+        "Here is the latest command output and context. Decide the next step per the rules.\n"
+        "If another command is needed, output ONLY <cmd>...</cmd>. If you can conclude, output the Final Report using the sections described."
+    ),
+    "max_auto_steps": 12,
 }

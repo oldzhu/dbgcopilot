@@ -24,12 +24,12 @@ def _print_help():
         "copilot> commands:",
         "  /help            Show this help",
         "  /new             Start a new copilot session",
-        "  /summary         Show session summary",
         "  /chatlog         Show chat Q/A transcript",
         "  /prompts show    Show current prompt config",
         "  /prompts reload  Reload prompts from configs/prompts.json",
+        "  /config          Show current config",
+        "  /agent on|off    Toggle agent mode (auto analysis and final report)",
         "  /exec <cmd>      Run an lldb command and record output",
-        "  /goal <text>     Set debugging goal",
         "  /llm list                List available LLM providers",
         "  /llm use <name>          Switch to a provider",
         "  /llm models [provider]   List models for provider (default: selected)",
@@ -75,8 +75,7 @@ def start_repl():  # pragma: no cover - lldb environment
                 setattr(globals_mod, "ORCH", AgentOrchestrator(GLOBAL_BACKEND, new_s))
                 GLOBAL_BACKEND.initialize_session()
                 print(f"[copilot] New session: {sid}")
-            elif verb == "/summary":
-                print(ORCH.summary())
+            
             elif verb == "/chatlog":
                 if not SESSION.chatlog:
                     print("[copilot] No chat yet.")
@@ -103,6 +102,17 @@ def start_repl():  # pragma: no cover - lldb environment
                         print(f"[copilot] Error reloading prompts: {e}")
                 else:
                     print("Usage: /prompts show | /prompts reload")
+            elif verb == "/config":
+                print(f"[copilot] Config: {SESSION.config}")
+                print(f"[copilot] Selected provider: {SESSION.selected_provider}")
+                print(f"[copilot] Mode: {SESSION.mode}")
+            elif verb == "/agent":
+                choice = (arg or "").strip().lower()
+                if choice not in {"on", "off"}:
+                    print("Usage: /agent on|off")
+                else:
+                    SESSION.mode = "auto" if choice == "on" else "interactive"
+                    print(f"[copilot] Agent mode {'enabled' if choice=='on' else 'disabled'}.")
             elif verb == "/exec":
                 if not arg:
                     print("[copilot] Usage: /exec <lldb-cmd>")
@@ -113,9 +123,7 @@ def start_repl():  # pragma: no cover - lldb environment
                     # Echo similarly to gdb> style for parity
                     print(f"lldb> {arg}")
                     print(out)
-            elif verb == "/goal":
-                SESSION.goal = arg
-                print(f"[copilot] Goal set: {SESSION.goal}")
+            
             elif verb == "/llm":
                 # Reuse the same /llm handling as GDB REPL for consistency
                 parts2 = arg.split() if arg else []

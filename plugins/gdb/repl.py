@@ -24,10 +24,8 @@ def _print_help():
         "copilot> commands:",
         "  /help            Show this help",
         "  /new             Start a new copilot session",
-        "  /summary         Show session summary",
         "  /config          Configure LLM backend/settings (placeholder)",
         "  /exec <cmd>      Run a gdb command and record output",
-        "  /goal <text>     Set debugging goal",
         "  exit or quit     Leave copilot>",
         "Any other input is treated as a natural language question to the LLM.",
     ]
@@ -69,8 +67,7 @@ def start_repl():  # pragma: no cover - gdb environment
                 setattr(globals_mod, "ORCH", AgentOrchestrator(GLOBAL_BACKEND, new_s))
                 GLOBAL_BACKEND.initialize_session()
                 gdb.write(f"[copilot] New session: {sid}\n")
-            elif verb == "/summary":
-                gdb.write(ORCH.summary() + "\n")
+            
             elif verb == "/config":
                 # show config and selected provider
                 gdb.write(f"[copilot] Config: {SESSION.config}\n")
@@ -102,9 +99,7 @@ def start_repl():  # pragma: no cover - gdb environment
                     SESSION.last_output = out
                     SESSION.attempts.append(Attempt(cmd=arg, output_snippet=out[:160]))
                     gdb.write(out + "\n")
-            elif verb == "/goal":
-                SESSION.goal = arg
-                gdb.write(f"[copilot] Goal set: {SESSION.goal}\n")
+            
             else:
                 gdb.write("[copilot] Unknown slash command. Try /help\n")
             continue

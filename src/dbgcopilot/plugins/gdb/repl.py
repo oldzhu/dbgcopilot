@@ -25,15 +25,14 @@ def _print_help():
         "copilot> commands:",
         "  /help            Show this help",
         "  /new             Start a new copilot session",
-        "  /summary         Show session summary",
         "  /chatlog         Show chat Q/A transcript",
-        "  /config          Configure LLM backend/settings (placeholder)",
+        "  /config          Show current config",
+        "  /agent on|off    Toggle agent mode (auto analysis and final report)",
         "  /debuginfod [on|off]  Show or toggle debuginfod setting",
         "  /colors [on|off] Toggle colored output (default on)",
         "  /prompts show    Show current prompt config",
         "  /prompts reload  Reload prompts from configs/prompts.json",
         "  /exec <cmd>      Run a gdb command and record output",
-        "  /goal <text>     Set debugging goal",
         "  /llm list                List available LLM providers",
         "  /llm use <name>          Switch to a provider",
         "  /llm models [provider]   List models for provider (default: selected)",
@@ -82,8 +81,7 @@ def start_repl():  # pragma: no cover - gdb environment
                 setattr(globals_mod, "ORCH", AgentOrchestrator(GLOBAL_BACKEND, new_s))
                 GLOBAL_BACKEND.initialize_session()
                 gdb.write(f"[copilot] New session: {sid}\n")
-            elif verb == "/summary":
-                gdb.write(ORCH.summary() + "\n")
+            
             elif verb == "/chatlog":
                 # Print entire transcript; keep it simple for now
                 if not SESSION.chatlog:
@@ -94,6 +92,14 @@ def start_repl():  # pragma: no cover - gdb environment
             elif verb == "/config":
                 gdb.write(f"[copilot] Config: {SESSION.config}\n")
                 gdb.write(f"[copilot] Selected provider: {SESSION.selected_provider}\n")
+                gdb.write(f"[copilot] Mode: {SESSION.mode}\n")
+            elif verb == "/agent":
+                choice = (arg or "").strip().lower()
+                if choice not in {"on", "off"}:
+                    gdb.write("Usage: /agent on|off\n")
+                else:
+                    SESSION.mode = "auto" if choice == "on" else "interactive"
+                    gdb.write(f"[copilot] Agent mode {'enabled' if choice=='on' else 'disabled'}.\n")
             elif verb == "/prompts":
                 sub = arg.strip().lower()
                 if sub == "show":
@@ -217,9 +223,7 @@ def start_repl():  # pragma: no cover - gdb environment
                     SESSION.last_output = out
                     SESSION.attempts.append(Attempt(cmd=arg, output_snippet=out[:160]))
                     gdb.write(out + "\n")
-            elif verb == "/goal":
-                SESSION.goal = arg
-                gdb.write(f"[copilot] Goal set: {SESSION.goal}\n")
+            
             else:
                 gdb.write("[copilot] Unknown slash command. Try /help\n")
             continue
