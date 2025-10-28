@@ -32,12 +32,11 @@ def _print_help():
         "  /exec <cmd>      Run an lldb command and record output",
         "  /llm list                List available LLM providers",
         "  /llm use <name>          Switch to a provider",
-        "  /llm models [provider]   List models for provider (default: selected)",
-        "  /llm model [provider] <model>  Set the model for provider (default: selected)",
-        "  /llm key <provider> <api_key>  Set API key for provider (stored in-session)",
+    "  /llm models [provider]   List models for provider (default: selected; OpenRouter & OpenAI-compatible)",
+    "  /llm model [provider] <model>  Set the model for provider (default: selected; OpenRouter & OpenAI-compatible)",
+    "  /llm key <provider> <api_key>  Set API key for provider (stored in-session; OpenRouter & OpenAI-compatible)",
         "  exit or quit     Leave copilot>",
         "Any other input is treated as a natural language question to the LLM.",
-        "Tip: If you want me to execute a command, I'll reply with <cmd>...</cmd> and run it automatically.",
     ]
     return "\n".join(lines)
 
@@ -157,6 +156,18 @@ def start_repl():  # pragma: no cover - lldb environment
                                     print(f"- {m}")
                         except Exception as e:
                             print(f"[copilot] Error listing models: {e}")
+                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                        try:
+                            from dbgcopilot.llm import openai_compat as _oa
+                            models = _oa.list_models(SESSION.config, name=provider)
+                            if not models:
+                                print(f"[copilot] No models returned from {provider}. Some providers do not support model listing via API; you can still set a model with /llm model.")
+                            else:
+                                print(f"{provider} models:")
+                                for m in models:
+                                    print(f"- {m}")
+                        except Exception as e:
+                            print(f"[copilot] Error listing models for {provider}: {e}")
                     else:
                         print(f"[copilot] Model listing not supported for provider: {provider}")
                 elif action == "model":
@@ -174,6 +185,10 @@ def start_repl():  # pragma: no cover - lldb environment
                     elif provider == "openrouter":
                         SESSION.config["openrouter_model"] = model
                         print(f"[copilot] OpenRouter model set to: {model}")
+                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                        key = provider.replace("-", "_") + "_model"
+                        SESSION.config[key] = model
+                        print(f"[copilot] {provider} model set to: {model}")
                     else:
                         print(f"[copilot] Setting model not supported for provider: {provider}")
                 elif action == "key":
@@ -184,6 +199,13 @@ def start_repl():  # pragma: no cover - lldb environment
                             if api_key:
                                 SESSION.config["openrouter_api_key"] = api_key
                                 print("[copilot] OpenRouter API key set for this session.")
+                            else:
+                                print("[copilot] Missing API key.")
+                        elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                            if api_key:
+                                key = provider.replace("-", "_") + "_api_key"
+                                SESSION.config[key] = api_key
+                                print(f"[copilot] {provider} API key set for this session.")
                             else:
                                 print("[copilot] Missing API key.")
                         else:

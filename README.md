@@ -11,8 +11,9 @@ UX Summary
 ----------
 - Single `copilot` command inside GDB opens a nested `copilot>` prompt.
 - Natural language inputs go to the LLM; slash-commands control the session:
-  - `/help`, `/new`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/llm list`, `/llm use <name>`
+  - `/help`, `/new`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/llm list`, `/llm use <name>`, `/agent on|off`, `/colors on|off`
   - Natural prompts like "run the program" or "continue" are sent to the LLM; when it wants to execute something, it replies with `<cmd>the-gdb-command</cmd>` and the command runs automatically.
+  - Default mode is interactive: after a `<cmd>` runs, the orchestrator waits for you. Turn on agent mode to auto-continue.
 
 Current Status
 --------------
@@ -94,6 +95,7 @@ copilot> /exec bt
 copilot> why is this crashing?
 copilot> /llm list
 copilot> /llm use openrouter
+copilot> /agent on   # optional: enable autonomous loop until a final report
 copilot> /chatlog
 copilot> exit
 ```
@@ -115,6 +117,7 @@ copilot> /exec help where
 copilot> run the program until it crashes
 copilot> /llm use openrouter
 copilot> /llm key openrouter sk-...  # in-session only
+copilot> /agent on                   # toggle autonomous agent mode
 copilot> quit
 ```
 
@@ -130,6 +133,39 @@ Notes:
 - The GDB subprocess backend sets pagination/width/height for non-interactive output and disables confirm prompts.
 - The LLDB path prefers the Python API backend (robust, prompt-free capture). If the Python bindings are not available, it falls back to a subprocess backend that sets auto-confirm and a simple prompt.
 - The assistant proposes exactly one command at a time and only executes after it returns `<cmd>…</cmd>`.
+
+Agent mode (auto)
+-----------------
+When you enable `/agent on`, the assistant will:
+- Skip proposal/confirmation and emit `<cmd>…</cmd>` directly when needed
+- Execute each command, analyze the new output, and decide the next step automatically
+- Stop when it can produce a concise final report with: root cause hypothesis, evidence, and next actions; or when a step cap is reached
+Default remains interactive; use `/agent off` to return to it.
+
+See `AGENTS.md` for contribution guidelines tailored for automated agents and tools working on this repository.
+
+LLM providers and configuration
+-------------------------------
+Available providers include:
+- `openrouter` (default)
+- Generic OpenAI-compatible: `openai-http` (custom endpoints), `ollama` (local), and convenience aliases: `deepseek`, `qwen`, `kimi`, `glm`
+
+Quick start:
+```
+copilot> /llm list
+copilot> /llm use deepseek
+copilot> /llm key deepseek sk-...     # set API key for this session
+copilot> /config                      # verify provider and mode
+```
+
+Notes:
+- OpenAI-compatible providers read `base_url`, `api_key`, `model`, and optional headers from the session config or environment. For convenience aliases we default to:
+  - deepseek: base https://api.deepseek.com/v1, model deepseek-chat
+  - qwen (DashScope): base https://dashscope.aliyuncs.com/compatible-mode/v1, model qwen-turbo
+  - kimi (Moonshot): base https://api.moonshot.cn/v1, model moonshot-v1-8k
+  - glm (ZhipuAI): base https://open.bigmodel.cn (path /api/paas/v4/chat/completions), model glm-4
+- You can switch providers anytime with `/llm use <name>`.
+- Colors are enabled by default; toggle with `/colors on|off`.
 
 Notes
 -----

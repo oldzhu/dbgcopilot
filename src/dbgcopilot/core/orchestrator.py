@@ -252,10 +252,14 @@ class AgentOrchestrator:
             prov = providers.get_provider(pname)
             if prov:
                 try:
-                    # For OpenRouter, allow model override via session config
+                    # Providers that need a session-bound instance
                     if pname == "openrouter":
                         from dbgcopilot.llm import openrouter as _or
                         ask_fn = _or.create_provider(session_config=self.state.config)
+                        answer = ask_fn(primed_question)
+                    elif pname in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                        from dbgcopilot.llm import openai_compat as _oa
+                        ask_fn = _oa.create_provider(session_config=self.state.config, name=pname)
                         answer = ask_fn(primed_question)
                     else:
                         answer = prov.ask(primed_question)
@@ -496,6 +500,10 @@ def _call_llm(provider_name: str, question: str, state) -> str:
     if provider_name == "openrouter":
         from dbgcopilot.llm import openrouter as _or
         ask_fn = _or.create_provider(session_config=state.config)
+        return ask_fn(question)
+    if provider_name in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+        from dbgcopilot.llm import openai_compat as _oa
+        ask_fn = _oa.create_provider(session_config=state.config, name=provider_name)
         return ask_fn(question)
     return prov.ask(question) if prov else ""
 

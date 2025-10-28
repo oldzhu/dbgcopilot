@@ -35,12 +35,11 @@ def _print_help():
         "  /exec <cmd>      Run a gdb command and record output",
         "  /llm list                List available LLM providers",
         "  /llm use <name>          Switch to a provider",
-        "  /llm models [provider]   List models for provider (default: selected)",
-        "  /llm model [provider] <model>  Set the model for provider (default: selected)",
-        "  /llm key <provider> <api_key>  Set API key for provider (stored in-session)",
+    "  /llm models [provider]   List models for provider (default: selected; OpenRouter & OpenAI-compatible)",
+    "  /llm model [provider] <model>  Set the model for provider (default: selected; OpenRouter & OpenAI-compatible)",
+    "  /llm key <provider> <api_key>  Set API key for provider (stored in-session; OpenRouter & OpenAI-compatible)",
         "  exit or quit     Leave copilot>",
         "Any other input is treated as a natural language question to the LLM.",
-        "Tip: If you want me to execute a GDB command, I'll reply with <cmd>...</cmd> and run it automatically.",
     ]
     return "\n".join(lines)
 
@@ -171,6 +170,18 @@ def start_repl():  # pragma: no cover - gdb environment
                                     gdb.write(f"- {m}\n")
                         except Exception as e:
                             gdb.write(f"[copilot] Error listing models: {e}\n")
+                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                        try:
+                            from dbgcopilot.llm import openai_compat as _oa
+                            models = _oa.list_models(SESSION.config, name=provider)
+                            if not models:
+                                gdb.write(f"[copilot] No models returned from {provider}. Some providers do not support model listing via API; you can still set a model with /llm model.\n")
+                            else:
+                                gdb.write(f"{provider} models:\n")
+                                for m in models:
+                                    gdb.write(f"- {m}\n")
+                        except Exception as e:
+                            gdb.write(f"[copilot] Error listing models for {provider}: {e}\n")
                     else:
                         gdb.write(f"[copilot] Model listing not supported for provider: {provider}\n")
                 elif action == "model":
@@ -189,6 +200,10 @@ def start_repl():  # pragma: no cover - gdb environment
                     elif provider == "openrouter":
                         SESSION.config["openrouter_model"] = model
                         gdb.write(f"[copilot] OpenRouter model set to: {model}\n")
+                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                        key = provider.replace("-", "_") + "_model"
+                        SESSION.config[key] = model
+                        gdb.write(f"[copilot] {provider} model set to: {model}\n")
                     else:
                         gdb.write(f"[copilot] Setting model not supported for provider: {provider}\n")
                 elif action == "key":
@@ -200,6 +215,13 @@ def start_repl():  # pragma: no cover - gdb environment
                             if api_key:
                                 SESSION.config["openrouter_api_key"] = api_key
                                 gdb.write("[copilot] OpenRouter API key set for this session.\n")
+                            else:
+                                gdb.write("[copilot] Missing API key.\n")
+                        elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                            if api_key:
+                                key = provider.replace("-", "_") + "_api_key"
+                                SESSION.config[key] = api_key
+                                gdb.write(f"[copilot] {provider} API key set for this session.\n")
                             else:
                                 gdb.write("[copilot] Missing API key.\n")
                         else:

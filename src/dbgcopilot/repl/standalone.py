@@ -51,9 +51,9 @@ def _print_help() -> str:
             "  /exec <cmd>                Run a debugger command (after /use)",
             "  /llm list                  List LLM providers",
             "  /llm use <name>            Select provider",
-            "  /llm models [provider]     List models for provider (OpenRouter)",
-            "  /llm model [provider] <m>  Set model for provider (OpenRouter)",
-            "  /llm key <provider> <key>  Set API key for provider",
+            "  /llm models [provider]     List models for provider (OpenRouter & OpenAI-compatible)",
+            "  /llm model [provider] <m>  Set model for provider (OpenRouter & OpenAI-compatible)",
+            "  /llm key <provider> <key>  Set API key for provider (OpenRouter & OpenAI-compatible)",
             "  exit or quit               Leave copilot>",
             "Any other input is sent to the LLM.",
         ]
@@ -121,6 +121,15 @@ def _handle_llm(cmd: str) -> str:
                 return "OpenRouter models:\n" + "\n".join(f"- {m}" for m in models)
             except Exception as e:
                 return f"[copilot] Error listing models: {e}"
+        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+            try:
+                from dbgcopilot.llm import openai_compat as _oa
+                models = _oa.list_models(s.config, name=provider)
+                if not models:
+                    return f"[copilot] No models returned from {provider}. Some providers do not support model listing via API; you can still set a model with /llm model."
+                return f"{provider} models:\n" + "\n".join(f"- {m}" for m in models)
+            except Exception as e:
+                return f"[copilot] Error listing models for {provider}: {e}"
         return f"[copilot] Model listing not supported for provider: {provider}"
     if action == "model":
         if len(parts) == 2:
@@ -137,6 +146,10 @@ def _handle_llm(cmd: str) -> str:
         if provider == "openrouter":
             s.config["openrouter_model"] = model
             return f"[copilot] OpenRouter model set to: {model}"
+        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+            key = provider.replace("-", "_") + "_model"
+            s.config[key] = model
+            return f"[copilot] {provider} model set to: {model}"
         return f"[copilot] Setting model not supported for provider: {provider}"
     if action == "key" and len(parts) >= 3:
         provider = parts[1]
@@ -145,6 +158,12 @@ def _handle_llm(cmd: str) -> str:
             if api_key:
                 s.config["openrouter_api_key"] = api_key
                 return "[copilot] OpenRouter API key set for this session."
+            return "[copilot] Missing API key."
+        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+            if api_key:
+                key = provider.replace("-", "_") + "_api_key"
+                s.config[key] = api_key
+                return f"[copilot] {provider} API key set for this session."
             return "[copilot] Missing API key."
         return f"[copilot] API key setting not supported for provider: {provider}"
     return (

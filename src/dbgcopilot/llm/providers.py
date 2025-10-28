@@ -57,4 +57,39 @@ except Exception:
     # If import fails (requests not installed), we simply don't register OpenRouter at import time
     pass
 
-# (modelscope provider removed - keeping registry small for POC testing with OpenRouter)
+try:
+    # Generic OpenAI-compatible HTTP provider (configurable via env/session)
+    from . import openai_compat as _oa
+
+    def _oa_http_default(prompt: str) -> str:
+        # Uses env-only defaults; orchestrator may wrap with session-specific provider later
+        ask_fn = _oa.create_provider(session_config=None, name="openai-http")
+        return ask_fn(prompt)
+
+    register_provider(Provider("openai-http", _oa_http_default, {"desc": "Generic OpenAI-compatible endpoint (configure base URL/API key/model)"}))
+
+    def _ollama_default(prompt: str) -> str:
+        ask_fn = _oa.create_provider(session_config=None, name="ollama")
+        return ask_fn(prompt)
+
+    register_provider(Provider("ollama", _ollama_default, {"desc": "Local Ollama via OpenAI-compatible /v1/chat/completions"}))
+except Exception:
+    pass
+
+# Convenience aliases for common OpenAI-compatible vendors
+try:
+    from . import openai_compat as _oa2
+
+    def _mk_provider(name: str):
+        def ask(prompt: str) -> str:
+            ask_fn = _oa2.create_provider(session_config=None, name=name)
+            return ask_fn(prompt)
+        return ask
+
+    register_provider(Provider("deepseek", _mk_provider("deepseek"), {"desc": "DeepSeek OpenAI-compatible API"}))
+    register_provider(Provider("qwen", _mk_provider("qwen"), {"desc": "Qwen via DashScope OpenAI-compatible API"}))
+    register_provider(Provider("kimi", _mk_provider("kimi"), {"desc": "Kimi (Moonshot) OpenAI-compatible API"}))
+    register_provider(Provider("glm", _mk_provider("glm"), {"desc": "Zhipu GLM OpenAI-compatible API"}))
+except Exception:
+    pass
+
