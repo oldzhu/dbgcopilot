@@ -90,6 +90,7 @@ try:
     register_provider(Provider("qwen", _mk_provider("qwen"), {"desc": "Qwen via DashScope OpenAI-compatible API"}))
     register_provider(Provider("kimi", _mk_provider("kimi"), {"desc": "Kimi (Moonshot) OpenAI-compatible API"}))
     register_provider(Provider("glm", _mk_provider("glm"), {"desc": "Zhipu GLM OpenAI-compatible API"}))
+    register_provider(Provider("llama-cpp", _mk_provider("llama-cpp"), {"desc": "llama.cpp local server (OpenAI-compatible)"}))
 except Exception:
     pass
 

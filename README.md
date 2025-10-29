@@ -148,7 +148,7 @@ LLM providers and configuration
 -------------------------------
 Available providers include:
 - `openrouter` (default)
-- Generic OpenAI-compatible: `openai-http` (custom endpoints), `ollama` (local), and convenience aliases: `deepseek`, `qwen`, `kimi`, `glm`
+- Generic OpenAI-compatible: `openai-http` (custom endpoints), `ollama` (local), `llama-cpp` (local), and convenience aliases: `deepseek`, `qwen`, `kimi`, `glm`
 
 Quick start:
 ```
@@ -164,6 +164,7 @@ Notes:
   - qwen (DashScope): base https://dashscope.aliyuncs.com/compatible-mode/v1, model qwen-turbo
   - kimi (Moonshot): base https://api.moonshot.cn/v1, model moonshot-v1-8k
   - glm (ZhipuAI): base https://open.bigmodel.cn (path /api/paas/v4/chat/completions), model glm-4
+  - llama-cpp: base http://localhost:8080 (llama.cpp server with --api), model llama
 - You can switch providers anytime with `/llm use <name>`.
 - Colors are enabled by default; toggle with `/colors on|off`.
 

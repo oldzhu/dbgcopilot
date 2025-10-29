@@ -79,6 +79,11 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
         base_url = base_url or "https://open.bigmodel.cn"
         path = path or "/api/paas/v4/chat/completions"
         model = model or "glm-4"
+    elif name == "llama-cpp":
+        # llama.cpp built-in server (OpenAI API compatible via --api), default port 8080
+        base_url = base_url or "http://localhost:8080"
+        # Most llama.cpp servers accept arbitrary model ids; default to a generic label
+        model = model or "llama"
 
     return {
         "base_url": base_url,

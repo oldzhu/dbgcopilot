@@ -257,7 +257,7 @@ class AgentOrchestrator:
                         from dbgcopilot.llm import openrouter as _or
                         ask_fn = _or.create_provider(session_config=self.state.config)
                         answer = ask_fn(primed_question)
-                    elif pname in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+                    elif pname in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "llama-cpp"}:
                         from dbgcopilot.llm import openai_compat as _oa
                         ask_fn = _oa.create_provider(session_config=self.state.config, name=pname)
                         answer = ask_fn(primed_question)
@@ -501,7 +501,7 @@ def _call_llm(provider_name: str, question: str, state) -> str:
         from dbgcopilot.llm import openrouter as _or
         ask_fn = _or.create_provider(session_config=state.config)
         return ask_fn(question)
-    if provider_name in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+    if provider_name in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "llama-cpp"}:
         from dbgcopilot.llm import openai_compat as _oa
         ask_fn = _oa.create_provider(session_config=state.config, name=provider_name)
         return ask_fn(question)
