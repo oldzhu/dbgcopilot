@@ -121,7 +121,7 @@ def _handle_llm(cmd: str) -> str:
                 return "OpenRouter models:\n" + "\n".join(f"- {m}" for m in models)
             except Exception as e:
                 return f"[copilot] Error listing models: {e}"
-        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
             try:
                 from dbgcopilot.llm import openai_compat as _oa
                 models = _oa.list_models(s.config, name=provider)
@@ -146,7 +146,7 @@ def _handle_llm(cmd: str) -> str:
         if provider == "openrouter":
             s.config["openrouter_model"] = model
             return f"[copilot] OpenRouter model set to: {model}"
-        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
             key = provider.replace("-", "_") + "_model"
             s.config[key] = model
             return f"[copilot] {provider} model set to: {model}"
@@ -159,7 +159,7 @@ def _handle_llm(cmd: str) -> str:
                 s.config["openrouter_api_key"] = api_key
                 return "[copilot] OpenRouter API key set for this session."
             return "[copilot] Missing API key."
-        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm"}:
+        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
             if api_key:
                 key = provider.replace("-", "_") + "_api_key"
                 s.config[key] = api_key

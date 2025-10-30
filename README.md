@@ -148,7 +148,7 @@ LLM providers and configuration
 -------------------------------
 Available providers include:
 - `openrouter` (default)
-- Generic OpenAI-compatible: `openai-http` (custom endpoints), `ollama` (local), `llama-cpp` (local), and convenience aliases: `deepseek`, `qwen`, `kimi`, `glm`
+- Generic OpenAI-compatible: `openai-http` (custom endpoints), `ollama` (local), `llama-cpp` (local), and convenience aliases: `deepseek`, `qwen`, `kimi`, `glm`, `modelscope`
 
 Quick start:
 ```
@@ -160,11 +160,12 @@ copilot> /config                      # verify provider and mode
 
 Notes:
 - OpenAI-compatible providers read `base_url`, `api_key`, `model`, and optional headers from the session config or environment. For convenience aliases we default to:
-  - deepseek: base https://api.deepseek.com/v1, model deepseek-chat
-  - qwen (DashScope): base https://dashscope.aliyuncs.com/compatible-mode/v1, model qwen-turbo
-  - kimi (Moonshot): base https://api.moonshot.cn/v1, model moonshot-v1-8k
+  - deepseek: base https://api.deepseek.com, model deepseek-chat
+  - qwen (DashScope): base https://dashscope.aliyuncs.com (path /compatible-mode/v1/chat/completions), model qwen-turbo
+  - kimi (Moonshot): base https://api.moonshot.cn, model moonshot-v1-8k
   - glm (ZhipuAI): base https://open.bigmodel.cn (path /api/paas/v4/chat/completions), model glm-4
   - llama-cpp: base http://localhost:8080 (llama.cpp server with --api), model llama
+  - modelscope: base https://api-inference.modelscope.cn, model deepseek-ai/DeepSeek-R1-Distill-Llama-8B
 - You can switch providers anytime with `/llm use <name>`.
 - Colors are enabled by default; toggle with `/colors on|off`.
 

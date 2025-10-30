@@ -66,14 +66,16 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
         model = model or "llama3.1"
         # No API key required by default for local Ollama
     elif name == "deepseek":
-        base_url = base_url or "https://api.deepseek.com/v1"
+        base_url = base_url or "https://api.deepseek.com"
         model = model or "deepseek-chat"
     elif name == "qwen":
         # DashScope OpenAI-compatible endpoint
-        base_url = base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        base_url = base_url or "https://dashscope.aliyuncs.com"
+        if path == "/v1/chat/completions":
+            path = "/compatible-mode/v1/chat/completions"
         model = model or "qwen-turbo"
     elif name == "kimi":
-        base_url = base_url or "https://api.moonshot.cn/v1"
+        base_url = base_url or "https://api.moonshot.cn"
         model = model or "moonshot-v1-8k"
     elif name == "glm":
         base_url = base_url or "https://open.bigmodel.cn"
@@ -84,6 +86,10 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
         base_url = base_url or "http://localhost:8080"
         # Most llama.cpp servers accept arbitrary model ids; default to a generic label
         model = model or "llama"
+    elif name == "modelscope":
+        # ModelScope OpenAI-compatible inference endpoint
+        base_url = base_url or "https://api-inference.modelscope.cn"
+        model = model or "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 
     return {
         "base_url": base_url,
