@@ -12,7 +12,9 @@ authors = [{ name = "Debugger Copilot" }]
 license = { text = "Apache-2.0 WITH LLVM-exception" }
 dependencies = [
 	"requests>=2.28",
-    "pexpect>=4.8",
+	"pexpect>=4.8",
+	"fastapi>=0.110",
+	"uvicorn[standard]>=0.30",
 ]
 
 [project.scripts]

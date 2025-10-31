@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Debugger Copilot</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>Debugger Copilot Web UI</h1>
+      <span id="status-indicator" class="status">checking status…</span>
+    </header>
+    <main class="layout">
+      <section id="explorer-pane" class="pane explorer" aria-label="Explorer">
+        <h2>Explorer</h2>
+        <form id="session-form" class="session-form">
+          <label for="debugger-select">Debugger</label>
+          <select id="debugger-select" name="debugger">
+            <option value="gdb" selected>GDB</option>
+            <option value="lldb">LLDB</option>
+          </select>
+
+          <label for="provider-select">LLM Provider</label>
+          <select id="provider-select" name="provider">
+            <option value="">Loading…</option>
+          </select>
+
+          <label for="model-input">Model (optional)</label>
+          <input id="model-input" name="model" type="text" placeholder="auto" />
+
+          <label for="api-key-input">API Key (optional)</label>
+          <input id="api-key-input" name="api_key" type="password" placeholder="env default" />
+
+          <label for="program-input">Program</label>
+          <input id="program-input" name="program" type="text" placeholder="path to binary" />
+
+          <button type="button" id="start-session">Start Session</button>
+        </form>
+
+        <div class="workspace" aria-live="polite">
+          <h3>Workspace</h3>
+          <ul id="workspace-list" class="workspace-list"></ul>
+        </div>
+      </section>
+      <div class="divider" role="separator" aria-orientation="vertical" tabindex="0" data-target="explorer-pane"></div>
+
+      <section id="debugger-pane" class="pane debugger" aria-label="Debugger">
+        <h2>Debugger Console</h2>
+        <div id="debugger-output" class="console" role="log"></div>
+        <form id="debugger-form" class="console-input">
+          <input id="debugger-command" type="text" placeholder="enter debugger command" autocomplete="off" />
+          <button type="submit">Run</button>
+        </form>
+      </section>
+      <div class="divider" role="separator" aria-orientation="vertical" tabindex="0" data-target="chat-pane"></div>
+
+      <section id="chat-pane" class="pane chat" aria-label="Chat">
+        <h2>Assistant Chat</h2>
+        <div id="chat-history" class="chat-history"></div>
+        <form id="chat-form" class="chat-input">
+          <textarea id="chat-message" rows="3" placeholder="Ask for guidance…"></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </section>
+    </main>
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>

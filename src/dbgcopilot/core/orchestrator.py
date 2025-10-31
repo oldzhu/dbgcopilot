@@ -138,6 +138,12 @@ class CopilotOrchestrator:
         dbg = getattr(self.backend, "name", "debugger")
         goal = (self.state.goal or "").strip()
 
+        session_cfg = {
+            "provider": self.state.provider_name,
+            "model": self.state.model_override,
+            "api_key": self.state.provider_api_key,
+        }
+
         # Prepare conversation lines: all previous chat plus the new user message
         prev_lines = list(self.state.chatlog)
         prev_lines.append(f"User: {text}")
