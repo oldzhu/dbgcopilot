@@ -47,6 +47,7 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
     api_key = pick(f"{key}_api_key", f"{prefix}_API_KEY", None)
     model = pick(f"{key}_model", f"{prefix}_MODEL", None)
     path = pick(f"{key}_path", f"{prefix}_PATH", "/v1/chat/completions")
+    path_override = f"{key}_path" in sc or f"{prefix}_PATH" in os.environ
     headers_raw = pick(f"{key}_headers", f"{prefix}_HEADERS", None)
 
     headers: Dict[str, str] = {}
@@ -79,8 +80,12 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
         model = model or "moonshot-v1-8k"
     elif name == "glm":
         base_url = base_url or "https://open.bigmodel.cn/api/paas/v4"
-        if not path or path == "/v1/chat/completions":
+        if not path_override:
             path = "/chat/completions"
+        else:
+            path = path or "/chat/completions"
+        if path and not path.startswith("/"):
+            path = "/" + path
         model = model or "glm-4"
     elif name == "llama-cpp":
         # llama.cpp built-in server (OpenAI API compatible via --api), default port 8080
@@ -173,7 +178,7 @@ def _ask_openai_compat(
 
     if not (200 <= resp.status_code < 300):
         snippet = (resp.text or "")[:200].replace("\n", " ")
-        raise RuntimeError(f"{name} HTTP {resp.status_code}: {snippet}")
+        raise RuntimeError(f"{name} HTTP {resp.status_code} for {url}: {snippet}")
 
     content_type = resp.headers.get("Content-Type", "").lower()
     if "json" not in content_type:
