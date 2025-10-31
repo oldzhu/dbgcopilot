@@ -54,10 +54,11 @@ After changes:
 
 ## Project structure hints
 
-- Orchestrator: `src/dbgcopilot/core/orchestrator.py` — prompt assembly, provider selection, agent loop.
+- Orchestrator: `src/dbgcopilot/core/orchestrator.py` — prompt assembly, provider selection, interactive loop.
 - Providers: `src/dbgcopilot/llm/*` — OpenRouter and OpenAI-compatible client and registry.
-- REPLs: `src/dbgcopilot/repl/standalone.py`, `plugins/gdb/repl.py`, `plugins/lldb/repl.py` — slash commands, config, mode toggles.
+- REPLs: `src/dbgcopilot/repl/standalone.py`, `plugins/gdb/repl.py`, `plugins/lldb/repl.py` — slash commands and session config.
 - Prompts: `src/dbgcopilot/prompts/` — defaults and tool instructions.
+- Autonomous agent CLI: `dbgagent/` — standalone package that drives debugger commands automatically.
 
 ## Pull requests
 

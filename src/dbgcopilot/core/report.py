@@ -12,7 +12,6 @@ def build_markdown_report(state: SessionState) -> str:
         "",
         "## Context",
         f"- Goal: {state.goal or 'N/A'}",
-        f"- Mode: {state.mode}",
         "",
         "## Key Findings",
     ]

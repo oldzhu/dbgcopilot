@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 import json
 import re
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 
 def _slug_to_env_prefix(name: str) -> str:
@@ -78,8 +78,9 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
         base_url = base_url or "https://api.moonshot.cn"
         model = model or "moonshot-v1-8k"
     elif name == "glm":
-        base_url = base_url or "https://open.bigmodel.cn"
-        path = path or "/api/paas/v4/chat/completions"
+        base_url = base_url or "https://open.bigmodel.cn/api/paas/v4"
+        if not path or path == "/v1/chat/completions":
+            path = "/chat/completions"
         model = model or "glm-4"
     elif name == "llama-cpp":
         # llama.cpp built-in server (OpenAI API compatible via --api), default port 8080
@@ -100,7 +101,44 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
     }
 
 
-def _ask_openai_compat(prompt: str, name: str, session_config: Optional[dict] = None) -> str:
+def _extract_usage(data: Dict[str, Any], provider_name: str, model: str) -> Dict[str, Any]:
+    usage: Dict[str, Any] = {
+        "provider": provider_name,
+        "model": model,
+    }
+    usage_obj = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+
+    def _as_int(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def _as_float(value: Any) -> Optional[float]:
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    if isinstance(usage_obj, dict):
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            val = _as_int(usage_obj.get(key))
+            if val is not None:
+                usage[key] = val
+        for cost_key in ("total_cost", "total_cost_usd", "cost"):
+            val = _as_float(usage_obj.get(cost_key))
+            if val is not None:
+                usage["cost"] = val
+                break
+
+    return usage
+
+
+def _ask_openai_compat(
+    prompt: str,
+    name: str,
+    session_config: Optional[dict] = None,
+) -> Tuple[str, Dict[str, Any]]:
     try:
         import requests
     except Exception as e:
@@ -137,18 +175,29 @@ def _ask_openai_compat(prompt: str, name: str, session_config: Optional[dict] = 
         snippet = (resp.text or "")[:200].replace("\n", " ")
         raise RuntimeError(f"{name} HTTP {resp.status_code}: {snippet}")
 
+    content_type = resp.headers.get("Content-Type", "").lower()
+    if "json" not in content_type:
+        snippet = (resp.text or "")[:400].replace("\n", " ")
+        raise RuntimeError(
+            f"{name} returned non-JSON payload (content-type={content_type or 'unknown'}). "
+            f"Response snippet: {snippet}"
+        )
+
     try:
         data = resp.json()
     except Exception as e:
-        raw = resp.text or ""
-        raise RuntimeError(f"{name} returned non-JSON response:\n{raw}") from e
+        raw = (resp.text or "")[:400]
+        raise RuntimeError(f"{name} returned invalid JSON (status {resp.status_code}). Snippet: {raw}") from e
 
     # Try OpenAI-like shape first
     try:
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
     except Exception:
         # fall back to raw json text
-        return json.dumps(data)
+        content = json.dumps(data)
+
+    usage = _extract_usage(data, name, model)
+    return content, usage
 
 
 def create_provider(session_config: dict | None = None, name: str = "openai-http"):
@@ -159,8 +208,11 @@ def create_provider(session_config: dict | None = None, name: str = "openai-http
     - name='ollama': use {ollama_*} keys or OLLAMA_* env vars (defaults base_url and model)
     """
     def ask(prompt: str) -> str:
-        return _ask_openai_compat(prompt, name=name, session_config=session_config)
+        content, usage = _ask_openai_compat(prompt, name=name, session_config=session_config)
+        setattr(ask, "last_usage", usage)
+        return content
 
+    setattr(ask, "last_usage", {})
     return ask
 
 

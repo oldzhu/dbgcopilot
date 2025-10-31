@@ -8,7 +8,7 @@ import sys
 import uuid
 from typing import Optional
 
-from dbgcopilot.core.orchestrator import AgentOrchestrator
+from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt
 from dbgcopilot.utils.io import color_text
 
@@ -16,7 +16,7 @@ from dbgcopilot.utils.io import color_text
 # Globals for a simple REPL
 SESSION: Optional[SessionState] = None
 BACKEND = None
-ORCH: Optional[AgentOrchestrator] = None
+ORCH: Optional[CopilotOrchestrator] = None
 
 
 def _ensure_session() -> SessionState:
@@ -43,7 +43,6 @@ def _print_help() -> str:
             "  /use gdb                   Select GDB (subprocess backend)",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
             "  /colors on|off             Toggle colored output in REPL and debugger (LLDB/GDB)",
-            "  /agent on|off              Toggle agent mode (auto analysis and final report)",
             "  /new                       Start a new copilot session",
             "  /chatlog                   Show chat transcript",
             "  /config                    Show current config",
@@ -89,7 +88,7 @@ def _select_gdb() -> str:
     except Exception as e:
         BACKEND = None
         return f"[copilot] Failed to start gdb: {e}"
-    ORCH = AgentOrchestrator(BACKEND, s)
+    ORCH = CopilotOrchestrator(BACKEND, s)
     return "[copilot] Using GDB (subprocess backend)."
 
 
@@ -181,7 +180,7 @@ def _select_lldb() -> str:
         from dbgcopilot.backends.lldb_api import LldbApiBackend
         BACKEND = LldbApiBackend()
         BACKEND.initialize_session()
-        ORCH = AgentOrchestrator(BACKEND, s)
+        ORCH = CopilotOrchestrator(BACKEND, s)
         return "[copilot] Using LLDB (API backend)."
     except Exception as api_err:
         try:
@@ -200,8 +199,8 @@ def _select_lldb() -> str:
                 f"[copilot] Failed to start lldb (API error: {api_err}); subprocess error: {sub_err}\n"
                 + _lldb_install_hint()
             )
-        ORCH = AgentOrchestrator(BACKEND, s)
-        return "[copilot] Using LLDB (subprocess backend; Python API unavailable).\n" + _lldb_install_hint()
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    return "[copilot] Using LLDB (subprocess backend; Python API unavailable).\n" + _lldb_install_hint()
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -243,7 +242,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 sid = str(uuid.uuid4())[:8]
                 globals()["SESSION"] = SessionState(session_id=sid)
                 if ORCH is not None and BACKEND is not None:
-                    globals()["ORCH"] = AgentOrchestrator(BACKEND, globals()["SESSION"])  # reload prompts per session
+                    globals()["ORCH"] = CopilotOrchestrator(BACKEND, globals()["SESSION"])  # reload prompts per session
                 _echo(f"[copilot] New session: {sid}")
                 continue
             
@@ -259,16 +258,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 s = _ensure_session()
                 _echo(f"[copilot] Config: {s.config}")
                 _echo(f"[copilot] Selected provider: {s.selected_provider}")
-                _echo(f"[copilot] Mode: {s.mode}")
                 continue
             if verb == "/agent":
-                choice = (arg or "").strip().lower()
-                if choice not in {"on", "off"}:
-                    _echo("Usage: /agent on|off")
-                    continue
-                s = _ensure_session()
-                s.mode = "auto" if choice == "on" else "interactive"
-                _echo(f"[copilot] Agent mode {'enabled' if choice=='on' else 'disabled'}.")
+                _echo("[copilot] Agent mode has moved to the new dbgagent tool.")
                 continue
             if verb == "/prompts":
                 if arg.strip().lower() == "show":

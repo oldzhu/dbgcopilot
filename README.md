@@ -5,15 +5,15 @@ Overview
 An AI-assisted debugger copilot for GDB (and later LLDB), focused on:
 - Summarizing and analyzing command outputs
 - Suggesting next debugging commands
-- Goal-driven planning and optional auto mode
+- Goal-driven planning with human-in-the-loop confirmations
 
 UX Summary
 ----------
 - Single `copilot` command inside GDB opens a nested `copilot>` prompt.
 - Natural language inputs go to the LLM; slash-commands control the session:
-  - `/help`, `/new`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/llm list`, `/llm use <name>`, `/agent on|off`, `/colors on|off`
+  - `/help`, `/new`, `/chatlog`, `/config`, `/exec <gdb-cmd>`, `/llm list`, `/llm use <name>`, `/colors on|off`
   - Natural prompts like "run the program" or "continue" are sent to the LLM; when it wants to execute something, it replies with `<cmd>the-gdb-command</cmd>` and the command runs automatically.
-  - Default mode is interactive: after a `<cmd>` runs, the orchestrator waits for you. Turn on agent mode to auto-continue.
+  - The REPL remains interactive-only. For autonomous runs, use the separate `dbgagent` CLI (see below).
 
 Current Status
 --------------
@@ -32,6 +32,9 @@ From the repo root in your Python 3.11+ venv:
 ```bash
 make build
 make install-wheel
+
+# Optional: install the autonomous agent CLI
+pip install -e dbgagent
 ```
 
 Ways to load dbgcopilot in GDB
@@ -95,7 +98,6 @@ copilot> /exec bt
 copilot> why is this crashing?
 copilot> /llm list
 copilot> /llm use openrouter
-copilot> /agent on   # optional: enable autonomous loop until a final report
 copilot> /chatlog
 copilot> exit
 ```
@@ -117,7 +119,6 @@ copilot> /exec help where
 copilot> run the program until it crashes
 copilot> /llm use openrouter
 copilot> /llm key openrouter sk-...  # in-session only
-copilot> /agent on                   # toggle autonomous agent mode
 copilot> quit
 ```
 
@@ -134,15 +135,22 @@ Notes:
 - The LLDB path prefers the Python API backend (robust, prompt-free capture). If the Python bindings are not available, it falls back to a subprocess backend that sets auto-confirm and a simple prompt.
 - The assistant proposes exactly one command at a time and only executes after it returns `<cmd>…</cmd>`.
 
-Agent mode (auto)
------------------
-When you enable `/agent on`, the assistant will:
-- Skip proposal/confirmation and emit `<cmd>…</cmd>` directly when needed
-- Execute each command, analyze the new output, and decide the next step automatically
-- Stop when it can produce a concise final report with: root cause hypothesis, evidence, and next actions; or when a step cap is reached
-Default remains interactive; use `/agent off` to return to it.
+Autonomous debugging (`dbgagent`)
+---------------------------------
+`dbgcopilot` stays focused on interactive, confirmation-driven workflows. For fully
+automatic investigations, install the companion package that ships in this repository:
 
-See `AGENTS.md` for contribution guidelines tailored for automated agents and tools working on this repository.
+```bash
+pip install -e dbgagent
+DBGAGENT_LOG=1 dbgagent --debugger gdb --program ./examples/crash_demo/crash \
+  --goal crash --llm-provider deepseek --llm-key "$DEEPSEEK_API_KEY"
+```
+
+`dbgagent` accepts command-line options for debugger selection, LLM provider/model,
+API keys, goals (`crash|hang|leak|custom`) plus free-form text, and resume files. It
+logs step-by-step execution to `/tmp` when `--log-session` (or `DBGAGENT_LOG`) is enabled
+and always writes a Markdown report. Edit that report, add your own comments, and use
+`--resume-from` to feed it back into a subsequent run for additional context.
 
 LLM providers and configuration
 -------------------------------
@@ -155,7 +163,7 @@ Quick start:
 copilot> /llm list
 copilot> /llm use deepseek
 copilot> /llm key deepseek sk-...     # set API key for this session
-copilot> /config                      # verify provider and mode
+copilot> /config                      # verify provider settings
 ```
 
 Notes:
@@ -182,6 +190,7 @@ Project Layout
 - `prompts/` — LLM prompt templates
 - `configs/default.yaml` — defaults
 - `tests/` — test stubs
+- `dbgagent/` — standalone autonomous agent package
 
 LLDB Python API (optional)
 --------------------------

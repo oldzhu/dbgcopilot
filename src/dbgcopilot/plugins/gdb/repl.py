@@ -9,7 +9,7 @@ try:
 except Exception:  # pragma: no cover
     gdb = None  # type: ignore
 
-from dbgcopilot.core.orchestrator import AgentOrchestrator
+from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt
 from dbgcopilot.utils.io import color_text
 
@@ -27,7 +27,6 @@ def _print_help():
         "  /new             Start a new copilot session",
         "  /chatlog         Show chat Q/A transcript",
         "  /config          Show current config",
-        "  /agent on|off    Toggle agent mode (auto analysis and final report)",
         "  /debuginfod [on|off]  Show or toggle debuginfod setting",
         "  /colors [on|off] Toggle colored output (default on)",
         "  /prompts show    Show current prompt config",
@@ -77,7 +76,7 @@ def start_repl():  # pragma: no cover - gdb environment
                 new_s = SessionState(session_id=sid)
                 globals_mod = __import__("dbgcopilot.plugins.gdb.copilot_cmd", fromlist=["SESSION", "ORCH"])
                 setattr(globals_mod, "SESSION", new_s)
-                setattr(globals_mod, "ORCH", AgentOrchestrator(GLOBAL_BACKEND, new_s))
+                setattr(globals_mod, "ORCH", CopilotOrchestrator(GLOBAL_BACKEND, new_s))
                 GLOBAL_BACKEND.initialize_session()
                 gdb.write(f"[copilot] New session: {sid}\n")
             
@@ -91,14 +90,9 @@ def start_repl():  # pragma: no cover - gdb environment
             elif verb == "/config":
                 gdb.write(f"[copilot] Config: {SESSION.config}\n")
                 gdb.write(f"[copilot] Selected provider: {SESSION.selected_provider}\n")
-                gdb.write(f"[copilot] Mode: {SESSION.mode}\n")
+                gdb.write("[copilot] Agent automation now lives in the dbgagent tool.\n")
             elif verb == "/agent":
-                choice = (arg or "").strip().lower()
-                if choice not in {"on", "off"}:
-                    gdb.write("Usage: /agent on|off\n")
-                else:
-                    SESSION.mode = "auto" if choice == "on" else "interactive"
-                    gdb.write(f"[copilot] Agent mode {'enabled' if choice=='on' else 'disabled'}.\n")
+                gdb.write("[copilot] Agent mode has moved to the new dbgagent tool.\n")
             elif verb == "/prompts":
                 sub = arg.strip().lower()
                 if sub == "show":

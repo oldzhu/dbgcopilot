@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbgagent"
+version = "0.0.1"
+description = "Autonomous debugging agent for GDB and LLDB"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Debugger Copilot" }]
+license = { text = "Apache-2.0 WITH LLVM-exception" }
+dependencies = [
+    "dbgcopilot>=0.0.1",
+    "requests>=2.28",
+    "pexpect>=4.8",
+]
+
+[project.scripts]
+dbgagent = "dbgagent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

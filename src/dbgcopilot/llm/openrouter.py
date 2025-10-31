@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import json
-from typing import Optional
+from typing import Optional, Tuple, Dict, Any
 
 
 def _get_api_key(meta: dict | None = None, session_config: dict | None = None) -> Optional[str]:
@@ -23,7 +23,50 @@ def _get_api_key(meta: dict | None = None, session_config: dict | None = None) -
     return os.environ.get("OPENROUTER_API_KEY")
 
 
-def _ask_openrouter(prompt: str, meta: dict | None = None, session_config: dict | None = None) -> str:
+def _extract_usage(data: Dict[str, Any], model: str) -> Dict[str, Any]:
+    usage = {}
+    usage_obj = {}
+    if isinstance(data.get("usage"), dict):
+        usage_obj = data["usage"]
+    elif isinstance(data.get("meta"), dict) and isinstance(data["meta"].get("usage"), dict):
+        usage_obj = data["meta"]["usage"]
+
+    def _as_int(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def _as_float(value: Any) -> Optional[float]:
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    if usage_obj:
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            iv = _as_int(usage_obj.get(key))
+            if iv is not None:
+                usage[key] = iv
+        # OpenRouter may return cost fields under different keys
+        for cost_key in ("total_cost", "total_cost_usd", "cost"):
+            fv = _as_float(usage_obj.get(cost_key))
+            if fv is not None:
+                usage["cost"] = fv
+                break
+
+    if "provider" not in usage:
+        usage["provider"] = "openrouter"
+    if "model" not in usage and model:
+        usage["model"] = model
+    return usage
+
+
+def _ask_openrouter(
+    prompt: str,
+    meta: dict | None = None,
+    session_config: dict | None = None,
+) -> Tuple[str, Dict[str, Any]]:
     # Lazy import to avoid adding hard runtime deps for tests
     try:
         import requests
@@ -79,18 +122,23 @@ def _ask_openrouter(prompt: str, meta: dict | None = None, session_config: dict 
         # Prefer showing full provider response to help troubleshooting
         raise RuntimeError(f"OpenRouter returned non-JSON response:\n{raw}") from e
     # Expecting standard OpenAI-like shape: choices[0].message.content
+    content: str
     try:
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
     except Exception:
-        # fallback to raw JSON
-        return json.dumps(data)
+        content = json.dumps(data)
+    usage = _extract_usage(data, model)
+    return content, usage
 
 
 def create_provider(session_config: dict | None = None):
     # Returns a callable that accepts prompt and returns string
     def ask(prompt: str) -> str:
-        return _ask_openrouter(prompt, meta=None, session_config=session_config)
+        content, usage = _ask_openrouter(prompt, meta=None, session_config=session_config)
+        setattr(ask, "last_usage", usage)
+        return content
 
+    setattr(ask, "last_usage", {})
     return ask
 
 

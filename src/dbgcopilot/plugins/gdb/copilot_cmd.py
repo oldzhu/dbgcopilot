@@ -41,7 +41,7 @@ def _ensure_paths():  # pragma: no cover - depends on runtime
 _ensure_paths()
 
 from dbgcopilot.core.state import SessionState, Attempt
-from dbgcopilot.core.orchestrator import AgentOrchestrator
+from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.backends.gdb_inprocess import GdbInProcessBackend
 
 
@@ -57,10 +57,12 @@ def _ensure_session():  # pragma: no cover - gdb environment
     if SESSION is None:
         sid = str(uuid.uuid4())[:8]
         SESSION = SessionState(session_id=sid)
-        ORCH = AgentOrchestrator(BACKEND, SESSION)
+        ORCH = CopilotOrchestrator(BACKEND, SESSION)
         BACKEND.initialize_session()
         if gdb is not None:
             gdb.write(f"[copilot] New session: {sid}\n")
+    else:
+        ORCH = CopilotOrchestrator(BACKEND, SESSION)
 
 
 if gdb is not None:  # pragma: no cover - only define the command inside gdb
@@ -77,7 +79,7 @@ if gdb is not None:  # pragma: no cover - only define the command inside gdb
                 # force new session
                 sid = str(uuid.uuid4())[:8]
                 SESSION = SessionState(session_id=sid)
-                ORCH = AgentOrchestrator(BACKEND, SESSION)
+                ORCH = CopilotOrchestrator(BACKEND, SESSION)
                 BACKEND.initialize_session()
                 gdb.write(f"[copilot] New session: {sid}\n")
             else:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Dict
 
 
 @dataclass
@@ -15,7 +15,6 @@ class Attempt:
 class SessionState:
     session_id: str
     goal: str = ""
-    mode: str = "interactive"  # or "auto"
     facts: List[str] = field(default_factory=list)
     chatlog: List[str] = field(default_factory=list)  # alternating User:/Assistant: lines
     attempts: List[Attempt] = field(default_factory=list)
@@ -23,7 +22,5 @@ class SessionState:
     config: Dict[str, str] = field(default_factory=dict)
     # selected LLM provider name
     selected_provider: str = "openrouter"
-    # pending debugger command awaiting user confirmation
-    pending_cmd: Optional[str] = None
     # UI preferences
     colors_enabled: bool = True

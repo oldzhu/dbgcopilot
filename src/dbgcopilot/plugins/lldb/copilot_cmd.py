@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover
     lldb = None  # type: ignore
 
 from dbgcopilot.core.state import SessionState, Attempt
-from dbgcopilot.core.orchestrator import AgentOrchestrator
+from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.backends.lldb_inprocess import LldbInProcessBackend
 
 
@@ -33,10 +33,12 @@ def _ensure_session():  # pragma: no cover - lldb environment
     if SESSION is None:
         sid = str(uuid.uuid4())[:8]
         SESSION = SessionState(session_id=sid)
-        ORCH = AgentOrchestrator(BACKEND, SESSION)
+        ORCH = CopilotOrchestrator(BACKEND, SESSION)
         BACKEND.initialize_session()
         if lldb is not None:
             print(f"[copilot] New session: {sid}")
+    else:
+        ORCH = CopilotOrchestrator(BACKEND, SESSION)
 
 
 def _copilot_cmd(debugger, command, exe_ctx, result, internal_dict):  # pragma: no cover
@@ -45,10 +47,11 @@ def _copilot_cmd(debugger, command, exe_ctx, result, internal_dict):  # pragma: 
     if args == "new":
         sid = str(uuid.uuid4())[:8]
         SESSION = SessionState(session_id=sid)
-        ORCH = AgentOrchestrator(BACKEND, SESSION)
+        ORCH = CopilotOrchestrator(BACKEND, SESSION)
         BACKEND.initialize_session()
         print(f"[copilot] New session: {sid}")
     else:
+        ORCH = CopilotOrchestrator(BACKEND, SESSION)
         _ensure_session()
     try:
         from dbgcopilot.plugins.lldb.repl import start_repl

@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mK]")
+ANSI_RE = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|[@-~])")
 
 
 def strip_ansi(s: str) -> str:

@@ -10,7 +10,7 @@ try:
 except Exception:  # pragma: no cover
     lldb = None  # type: ignore
 
-from dbgcopilot.core.orchestrator import AgentOrchestrator
+from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt
 
 
@@ -28,7 +28,6 @@ def _print_help():
         "  /prompts show    Show current prompt config",
         "  /prompts reload  Reload prompts from configs/prompts.json",
         "  /config          Show current config",
-        "  /agent on|off    Toggle agent mode (auto analysis and final report)",
         "  /exec <cmd>      Run an lldb command and record output",
         "  /llm list                List available LLM providers",
         "  /llm use <name>          Switch to a provider",
@@ -71,7 +70,7 @@ def start_repl():  # pragma: no cover - lldb environment
                 new_s = SessionState(session_id=sid)
                 globals_mod = __import__("dbgcopilot.plugins.lldb.copilot_cmd", fromlist=["SESSION", "ORCH"])
                 setattr(globals_mod, "SESSION", new_s)
-                setattr(globals_mod, "ORCH", AgentOrchestrator(GLOBAL_BACKEND, new_s))
+                setattr(globals_mod, "ORCH", CopilotOrchestrator(GLOBAL_BACKEND, new_s))
                 GLOBAL_BACKEND.initialize_session()
                 print(f"[copilot] New session: {sid}")
             
@@ -104,14 +103,9 @@ def start_repl():  # pragma: no cover - lldb environment
             elif verb == "/config":
                 print(f"[copilot] Config: {SESSION.config}")
                 print(f"[copilot] Selected provider: {SESSION.selected_provider}")
-                print(f"[copilot] Mode: {SESSION.mode}")
+                print("[copilot] Agent automation now lives in the dbgagent tool.")
             elif verb == "/agent":
-                choice = (arg or "").strip().lower()
-                if choice not in {"on", "off"}:
-                    print("Usage: /agent on|off")
-                else:
-                    SESSION.mode = "auto" if choice == "on" else "interactive"
-                    print(f"[copilot] Agent mode {'enabled' if choice=='on' else 'disabled'}.")
+                print("[copilot] Agent mode has moved to the new dbgagent tool.")
             elif verb == "/exec":
                 if not arg:
                     print("[copilot] Usage: /exec <lldb-cmd>")
