@@ -24,6 +24,8 @@ let fitAddon = null;
 let fitRequestId = null;
 let lastWasCarriageReturn = false;
 let debuggerReplayBuffer = [];
+let terminalSupportsKeystream = false;
+let fallbackControls = null;
 
 const api = {
   async getStatus() {
@@ -175,9 +177,16 @@ function initializeTerminal() {
     return;
   }
   if (!window.Terminal) {
-    console.error("xterm.js failed to load");
+    console.warn("xterm.js not available; using fallback debugger console");
+    terminalSupportsKeystream = false;
+    terminal = createFallbackTerminal();
+    if (terminal && typeof terminal.focus === "function") {
+      terminal.focus();
+    }
+    terminalInitialized = true;
     return;
   }
+  terminalSupportsKeystream = true;
   terminal = new window.Terminal({
     cursorBlink: true,
     scrollback: 2000,
@@ -198,7 +207,9 @@ function initializeTerminal() {
     queueTerminalFit();
     window.addEventListener("resize", queueTerminalFit);
   }
-  terminal.onData(handleTerminalInput);
+  if (typeof terminal.onData === "function") {
+    terminal.onData(handleTerminalInput);
+  }
   terminalContainer.addEventListener("click", () => {
     terminal?.focus();
   });
@@ -235,6 +246,9 @@ function appendDebuggerOutput(text) {
 }
 
 function handleBackspace() {
+  if (!terminalSupportsKeystream) {
+    return;
+  }
   if (!currentInput) {
     return;
   }
@@ -243,6 +257,9 @@ function handleBackspace() {
 }
 
 async function submitInput() {
+  if (!terminalSupportsKeystream) {
+    return;
+  }
   const term = ensureTerminal();
   if (!term) {
     return;
@@ -250,19 +267,13 @@ async function submitInput() {
   term.write("\r\n");
   const command = currentInput;
   currentInput = "";
-  if (!sessionId) {
-    writeDebuggerStatus("[debugger] start a session first");
-    return;
-  }
-  try {
-    await api.sendCommand(sessionId, command);
-  } catch (err) {
-    console.error(err);
-    writeDebuggerStatus(`[error] ${err.message}`);
-  }
+  await dispatchDebuggerCommand(command);
 }
 
 function handleTerminalInput(data) {
+  if (!terminalSupportsKeystream) {
+    return;
+  }
   if (!terminal) {
     return;
   }
@@ -416,11 +427,7 @@ startSessionButton.addEventListener("click", async () => {
     appendChatEntry("assistant", `[chat] session ${sessionId} ready`);
     setStatus(`session: ${sessionId}`);
     connectWebSockets(sessionId);
-    try {
-      await api.sendCommand(sessionId, "");
-    } catch (signalError) {
-      console.error("failed to prime debugger prompt", signalError);
-    }
+    await dispatchDebuggerCommand("");
   } catch (err) {
     console.error(err);
     setStatus(`session error: ${err.message}`, false);
@@ -495,6 +502,162 @@ function replayInitialDebuggerMessages(messages) {
   const normalized = messages.filter((msg) => typeof msg === "string" && msg.length > 0);
   debuggerReplayBuffer = normalized.slice();
   normalized.forEach((msg) => appendDebuggerOutput(msg));
+}
+
+async function dispatchDebuggerCommand(command) {
+  if (!sessionId) {
+    writeDebuggerStatus("[debugger] start a session first");
+    return;
+  }
+  try {
+    await api.sendCommand(sessionId, command);
+  } catch (err) {
+    console.error(err);
+    writeDebuggerStatus(`[error] ${err.message}`);
+  }
+}
+
+function createFallbackTerminal() {
+  const container = terminalContainer;
+  if (!container) {
+    return null;
+  }
+  container.innerHTML = "";
+  container.classList.add("terminal-fallback-container");
+
+  const output = document.createElement("div");
+  output.className = "terminal-fallback-output";
+  container.appendChild(output);
+
+  const inputLine = document.createElement("div");
+  inputLine.className = "terminal-fallback-input-line";
+
+  const prompt = document.createElement("span");
+  prompt.className = "terminal-fallback-prompt";
+  prompt.textContent = "";
+
+  const input = document.createElement("span");
+  input.className = "terminal-fallback-input";
+  input.contentEditable = "true";
+  input.spellcheck = false;
+  input.setAttribute("role", "textbox");
+  input.setAttribute("aria-label", "Debugger command input");
+
+  inputLine.appendChild(prompt);
+  inputLine.appendChild(input);
+  container.appendChild(inputLine);
+
+  const controls = {
+    output,
+    input,
+    prompt,
+    buffer: "",
+    currentPrompt: "",
+    lastPrompt: "> ",
+    defaultPrompt: "> ",
+  };
+
+  function focusInput() {
+    input.focus();
+    const selection = window.getSelection();
+    if (!selection) {
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function appendLine(text) {
+    const block = document.createElement("pre");
+    block.textContent = text;
+    output.appendChild(block);
+    output.scrollTop = output.scrollHeight;
+  }
+
+  function setPrompt(text) {
+    controls.currentPrompt = text;
+    if (text) {
+      controls.lastPrompt = text;
+      input.dataset.placeholder = "";
+    } else {
+      input.dataset.placeholder = "waiting for prompt...";
+    }
+    prompt.textContent = text;
+  }
+
+  async function submitCommand(command) {
+    const displayPrompt = controls.currentPrompt || controls.lastPrompt || controls.defaultPrompt;
+    appendLine(`${displayPrompt}${command}`);
+    input.textContent = "";
+    controls.buffer = "";
+    setPrompt("");
+    await dispatchDebuggerCommand(command);
+  }
+
+  input.addEventListener("keydown", async (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const command = input.textContent ?? "";
+      await submitCommand(command);
+      focusInput();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    const sanitized = input.textContent?.replace(/\n/g, " ") ?? "";
+    if (sanitized !== input.textContent) {
+      input.textContent = sanitized;
+      focusInput();
+    }
+  });
+
+  container.addEventListener("mousedown", (event) => {
+    if (output.contains(event.target)) {
+      return;
+    }
+    window.requestAnimationFrame(focusInput);
+  });
+
+  fallbackControls = controls;
+  setPrompt("");
+  focusInput();
+
+  return {
+    write(text) {
+      if (!text) {
+        return;
+      }
+      const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const combined = controls.buffer + normalized;
+      const segments = combined.split("\n");
+      controls.buffer = normalized.endsWith("\n") ? "" : segments.pop() ?? "";
+      segments.forEach((segment) => appendLine(segment));
+      if (controls.buffer) {
+        setPrompt(controls.buffer);
+      } else if (!controls.currentPrompt) {
+        setPrompt("");
+      }
+      focusInput();
+    },
+    reset() {
+      output.innerHTML = "";
+      input.textContent = "";
+      controls.buffer = "";
+      controls.lastPrompt = controls.defaultPrompt;
+      setPrompt("");
+      focusInput();
+    },
+    focus() {
+      focusInput();
+    },
+  };
 }
 
 async function bootstrap() {
