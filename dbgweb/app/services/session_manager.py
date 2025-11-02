@@ -37,7 +37,7 @@ class SessionManager:
         api_key: Optional[str],
         program: Optional[str],
         corefile: Optional[str],
-    ) -> Session:
+    ) -> tuple[Session, list[str]]:
         async with self._lock:
             session_id = uuid.uuid4().hex[:8]
             backend = self._create_backend(debugger)
@@ -59,13 +59,25 @@ class SessionManager:
                 debugger_backend=backend,
             )
             self.sessions[session_id] = session
+            initial_messages: list[str] = []
             if program:
                 init_output = await asyncio.to_thread(backend.run_command, f"file {program}")
-                await session.debugger_queue.put(strip_ansi(init_output or ""))
+                formatted = self._format_debugger_output(session, init_output)
+                if formatted:
+                    initial_messages.append(formatted)
+                    await session.debugger_queue.put(formatted)
             if corefile:
                 init_output = await asyncio.to_thread(backend.run_command, f"core-file {corefile}")
-                await session.debugger_queue.put(strip_ansi(init_output or ""))
-            return session
+                formatted = self._format_debugger_output(session, init_output)
+                if formatted:
+                    initial_messages.append(formatted)
+                    await session.debugger_queue.put(formatted)
+            if not program and not corefile:
+                prompt = self._prompt_text(session)
+                if prompt:
+                    initial_messages.append(prompt)
+                    await session.debugger_queue.put(prompt)
+            return session, initial_messages
 
     def get_session(self, session_id: str) -> Session:
         session = self.sessions.get(session_id)
@@ -84,7 +96,9 @@ class SessionManager:
 
     async def run_debugger_command(self, session: Session, command: str) -> None:
         result = await asyncio.to_thread(session.debugger_backend.run_command, command)
-        await session.debugger_queue.put(strip_ansi(result or ""))
+        formatted = self._format_debugger_output(session, result)
+        if formatted:
+            await session.debugger_queue.put(formatted)
         session.state.last_output = result or ""
         session.state.attempts.append(
             Attempt(cmd=command, output_snippet=(result or "")[:160])
@@ -99,7 +113,9 @@ class SessionManager:
         await session.chat_queue.put(clean_answer)
         # When orchestrator executes a command, last_output will reflect it. Forward to debugger queue.
         if session.state.last_output:
-            await session.debugger_queue.put(strip_ansi(session.state.last_output))
+            formatted = self._format_debugger_output(session, session.state.last_output)
+            if formatted:
+                await session.debugger_queue.put(formatted)
         return clean_answer
 
     def _create_backend(self, debugger: str):
@@ -116,6 +132,25 @@ class SessionManager:
             raise ValueError(f"Unsupported debugger: {debugger}")
         backend.initialize_session()
         return backend
+
+    def _prompt_text(self, session: Session) -> str:
+        prompt = getattr(session.debugger_backend, "prompt", "") or ""
+        prompt = prompt.replace("\r", "").replace("\n", "")
+        if prompt and not prompt.endswith(" "):
+            prompt = f"{prompt} "
+        return prompt
+
+    def _format_debugger_output(self, session: Session, text: Optional[str]) -> str:
+        clean = strip_ansi((text or "").rstrip("\r"))
+        prompt = self._prompt_text(session)
+        if prompt:
+            if clean:
+                if not clean.endswith("\n"):
+                    clean += "\n"
+                clean += prompt
+            else:
+                clean = prompt
+        return clean
 
 
 session_manager = SessionManager()

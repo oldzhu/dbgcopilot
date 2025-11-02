@@ -1,9 +1,7 @@
 const statusIndicator = document.getElementById("status-indicator");
 const providerSelect = document.getElementById("provider-select");
 const workspaceList = document.getElementById("workspace-list");
-const debuggerOutput = document.getElementById("debugger-output");
-const debuggerForm = document.getElementById("debugger-form");
-const debuggerCommandInput = document.getElementById("debugger-command");
+const terminalContainer = document.getElementById("debugger-terminal");
 const chatHistory = document.getElementById("chat-history");
 const chatForm = document.getElementById("chat-form");
 const chatMessage = document.getElementById("chat-message");
@@ -19,6 +17,13 @@ let debuggerSocket = null;
 let chatSocket = null;
 let currentPath = ".";
 let selectedProgram = "";
+let terminal = null;
+let currentInput = "";
+let terminalInitialized = false;
+let fitAddon = null;
+let fitRequestId = null;
+let lastWasCarriageReturn = false;
+let debuggerReplayBuffer = [];
 
 const api = {
   async getStatus() {
@@ -27,7 +32,6 @@ const api = {
       throw new Error(`status request failed: ${resp.status}`);
     }
     return resp.json();
-    document.addEventListener("DOMContentLoaded", setupResizers);
   },
   async getProviders() {
     const resp = await fetch("/api/providers");
@@ -149,11 +153,151 @@ function renderWorkspace(data) {
   }
 }
 
+function queueTerminalFit() {
+  if (!fitAddon || typeof fitAddon.fit !== "function") {
+    return;
+  }
+  if (fitRequestId) {
+    return;
+  }
+  fitRequestId = window.requestAnimationFrame(() => {
+    fitRequestId = null;
+    try {
+      fitAddon.fit();
+    } catch (err) {
+      console.error("terminal resize failed", err);
+    }
+  });
+}
+
+function initializeTerminal() {
+  if (terminalInitialized || !terminalContainer) {
+    return;
+  }
+  if (!window.Terminal) {
+    console.error("xterm.js failed to load");
+    return;
+  }
+  terminal = new window.Terminal({
+    cursorBlink: true,
+    scrollback: 2000,
+    convertEol: true,
+    fontFamily: "Fira Mono, Courier New, monospace",
+    fontSize: 14,
+    theme: {
+      background: "#1b1b1b",
+      foreground: "#d4d4d4",
+      cursor: "#9cdcfe",
+    },
+  });
+  terminal.open(terminalContainer);
+  terminal.focus();
+  if (window.FitAddon && window.FitAddon.FitAddon) {
+    fitAddon = new window.FitAddon.FitAddon();
+    terminal.loadAddon(fitAddon);
+    queueTerminalFit();
+    window.addEventListener("resize", queueTerminalFit);
+  }
+  terminal.onData(handleTerminalInput);
+  terminalContainer.addEventListener("click", () => {
+    terminal?.focus();
+  });
+  terminalInitialized = true;
+}
+
+function ensureTerminal() {
+  if (!terminalInitialized) {
+    initializeTerminal();
+  }
+  return terminal;
+}
+
+function writeDebuggerStatus(text) {
+  const term = ensureTerminal();
+  if (!term) {
+    return;
+  }
+  term.write(`${text}\r\n`);
+  queueTerminalFit();
+}
+
 function appendDebuggerOutput(text) {
-  const line = document.createElement("div");
-  line.textContent = text;
-  debuggerOutput.appendChild(line);
-  debuggerOutput.scrollTop = debuggerOutput.scrollHeight;
+  if (!text) {
+    return;
+  }
+  const term = ensureTerminal();
+  if (!term) {
+    return;
+  }
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  term.write(normalized.replace(/\n/g, "\r\n"));
+  queueTerminalFit();
+}
+
+function handleBackspace() {
+  if (!currentInput) {
+    return;
+  }
+  currentInput = currentInput.slice(0, -1);
+  terminal?.write("\b \b");
+}
+
+async function submitInput() {
+  const term = ensureTerminal();
+  if (!term) {
+    return;
+  }
+  term.write("\r\n");
+  const command = currentInput;
+  currentInput = "";
+  if (!sessionId) {
+    writeDebuggerStatus("[debugger] start a session first");
+    return;
+  }
+  try {
+    await api.sendCommand(sessionId, command);
+  } catch (err) {
+    console.error(err);
+    writeDebuggerStatus(`[error] ${err.message}`);
+  }
+}
+
+function handleTerminalInput(data) {
+  if (!terminal) {
+    return;
+  }
+  if (!data) {
+    return;
+  }
+  if (data === "\x1b[A" || data === "\x1b[B" || data === "\x1b[C" || data === "\x1b[D") {
+    // History and cursor navigation will arrive in a later pass.
+    return;
+  }
+  for (const ch of data) {
+    if (ch === "\r" || ch === "\n") {
+      if (ch === "\n" && lastWasCarriageReturn) {
+        lastWasCarriageReturn = false;
+        continue;
+      }
+      lastWasCarriageReturn = ch === "\r";
+      submitInput();
+      continue;
+    }
+    lastWasCarriageReturn = false;
+    if (ch === "\u0003") {
+      writeDebuggerStatus("[debugger] interrupt not yet supported");
+      continue;
+    }
+    if (ch === "\x7f") {
+      handleBackspace();
+      continue;
+    }
+    if (ch.charCodeAt(0) < 32) {
+      continue;
+    }
+    currentInput += ch;
+    terminal.write(ch);
+  }
 }
 
 function appendChatEntry(role, text) {
@@ -165,7 +309,16 @@ function appendChatEntry(role, text) {
 }
 
 function clearConsole() {
-  debuggerOutput.innerHTML = "";
+  const term = ensureTerminal();
+  if (!term) {
+    return;
+  }
+  term.reset();
+  currentInput = "";
+  term.focus();
+  lastWasCarriageReturn = false;
+  queueTerminalFit();
+  debuggerReplayBuffer = [];
 }
 
 function clearChat() {
@@ -183,17 +336,26 @@ function connectWebSockets(id) {
     chatSocket.close();
   }
 
+  ensureTerminal();
+
   debuggerSocket = new WebSocket(`${base}/ws/debugger/${id}`);
   debuggerSocket.addEventListener("message", (event) => {
-    if (event.data) {
-      appendDebuggerOutput(event.data);
+    const message = typeof event.data === "string" ? event.data : "";
+    if (!message) {
+      return;
     }
+    if (debuggerReplayBuffer.length && debuggerReplayBuffer[0] === message) {
+      debuggerReplayBuffer.shift();
+      return;
+    }
+    appendDebuggerOutput(message);
   });
   debuggerSocket.addEventListener("open", () => {
-    appendDebuggerOutput("[debugger] connected");
+    writeDebuggerStatus("[debugger] connected");
+    queueTerminalFit();
   });
   debuggerSocket.addEventListener("close", () => {
-    appendDebuggerOutput("[debugger] disconnected");
+    writeDebuggerStatus("[debugger] disconnected");
   });
 
   chatSocket = new WebSocket(`${base}/ws/chat/${id}`);
@@ -209,26 +371,6 @@ function connectWebSockets(id) {
     appendChatEntry("assistant", "[chat] disconnected");
   });
 }
-
-debuggerForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const cmd = debuggerCommandInput.value.trim();
-  if (!cmd) {
-    return;
-  }
-  if (!sessionId) {
-    appendDebuggerOutput("[debugger] start a session first");
-    return;
-  }
-  appendDebuggerOutput(`> ${cmd}`);
-  debuggerCommandInput.value = "";
-  try {
-    await api.sendCommand(sessionId, cmd);
-  } catch (err) {
-    console.error(err);
-    appendDebuggerOutput(`[error] ${err.message}`);
-  }
-});
 
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -269,10 +411,16 @@ startSessionButton.addEventListener("click", async () => {
     sessionId = data.session_id;
     clearConsole();
     clearChat();
-    appendDebuggerOutput(`[debugger] session ${sessionId} created`);
+    writeDebuggerStatus(`[debugger] session ${sessionId} created`);
+    replayInitialDebuggerMessages(data.initial_messages || []);
     appendChatEntry("assistant", `[chat] session ${sessionId} ready`);
     setStatus(`session: ${sessionId}`);
     connectWebSockets(sessionId);
+    try {
+      await api.sendCommand(sessionId, "");
+    } catch (signalError) {
+      console.error("failed to prime debugger prompt", signalError);
+    }
   } catch (err) {
     console.error(err);
     setStatus(`session error: ${err.message}`, false);
@@ -310,6 +458,7 @@ function setupResizers() {
         const nextWidth = Math.max(minWidth, startWidth + delta);
         targetPane.style.flexBasis = `${nextWidth}px`;
         targetPane.style.width = `${nextWidth}px`;
+        queueTerminalFit();
       };
 
       const onUp = () => detachHandlers(pointerId, onMove, onUp);
@@ -332,8 +481,20 @@ function setupResizers() {
       targetPane.style.flexBasis = `${nextWidth}px`;
       targetPane.style.width = `${nextWidth}px`;
       event.preventDefault();
+      queueTerminalFit();
     });
   });
+}
+
+function replayInitialDebuggerMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    debuggerReplayBuffer = [];
+    return;
+  }
+  ensureTerminal();
+  const normalized = messages.filter((msg) => typeof msg === "string" && msg.length > 0);
+  debuggerReplayBuffer = normalized.slice();
+  normalized.forEach((msg) => appendDebuggerOutput(msg));
 }
 
 async function bootstrap() {
@@ -366,5 +527,8 @@ async function bootstrap() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", bootstrap);
-document.addEventListener("DOMContentLoaded", setupResizers);
+document.addEventListener("DOMContentLoaded", () => {
+  initializeTerminal();
+  setupResizers();
+  bootstrap();
+});

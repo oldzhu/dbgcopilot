@@ -9,6 +9,9 @@ from __future__ import annotations
 class LldbInProcessBackend:
     name = "lldb"
 
+    def __init__(self) -> None:
+        self.prompt = "(lldb) "
+
     def initialize_session(self) -> None:
         # Minimal session tweaks can be added here if needed (e.g., settings set ...)
         try:

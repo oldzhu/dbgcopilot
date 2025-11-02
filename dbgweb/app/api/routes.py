@@ -44,7 +44,7 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
     model = payload.get("model")
     api_key = payload.get("api_key")
 
-    session = await session_manager.create_session(
+    session, initial_messages = await session_manager.create_session(
         debugger=required,
         provider=provider,
         model=model,
@@ -52,13 +52,13 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
         program=program,
         corefile=corefile,
     )
-    return JSONResponse({"session_id": session.session_id})
+    return JSONResponse({"session_id": session.session_id, "initial_messages": initial_messages})
 
 
 @router.post("/sessions/{session_id}/command")
 async def run_command(session_id: str, payload: Dict[str, Any]) -> JSONResponse:
     command = payload.get("command")
-    if not command:
+    if command is None:
         raise HTTPException(status_code=400, detail="command is required")
     try:
         session = session_manager.get_session(session_id)

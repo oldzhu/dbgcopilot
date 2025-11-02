@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Debugger Copilot</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/xterm@5.4.0/css/xterm.min.css"
+    />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -21,17 +25,6 @@
             <option value="lldb">LLDB</option>
           </select>
 
-          <label for="provider-select">LLM Provider</label>
-          <select id="provider-select" name="provider">
-            <option value="">Loading…</option>
-          </select>
-
-          <label for="model-input">Model (optional)</label>
-          <input id="model-input" name="model" type="text" placeholder="auto" />
-
-          <label for="api-key-input">API Key (optional)</label>
-          <input id="api-key-input" name="api_key" type="password" placeholder="env default" />
-
           <label for="program-input">Program</label>
           <input id="program-input" name="program" type="text" placeholder="path to binary" />
 
@@ -47,11 +40,7 @@
 
       <section id="debugger-pane" class="pane debugger" aria-label="Debugger">
         <h2>Debugger Console</h2>
-        <div id="debugger-output" class="console" role="log"></div>
-        <form id="debugger-form" class="console-input">
-          <input id="debugger-command" type="text" placeholder="enter debugger command" autocomplete="off" />
-          <button type="submit">Run</button>
-        </form>
+        <div id="debugger-terminal" class="terminal" role="log" aria-live="polite"></div>
       </section>
       <div class="divider" role="separator" aria-orientation="vertical" tabindex="0" data-target="chat-pane"></div>
 
@@ -60,10 +49,26 @@
         <div id="chat-history" class="chat-history"></div>
         <form id="chat-form" class="chat-input">
           <textarea id="chat-message" rows="3" placeholder="Ask for guidance…"></textarea>
-          <button type="submit">Send</button>
+          <div class="chat-controls">
+            <button type="submit">Send</button>
+          </div>
+          <div class="chat-settings" role="group" aria-label="LLM settings">
+            <label for="provider-select">LLM Provider</label>
+            <select id="provider-select" name="provider">
+              <option value="">Loading…</option>
+            </select>
+
+            <label for="model-input">Model (optional)</label>
+            <input id="model-input" name="model" type="text" placeholder="auto" />
+
+            <label for="api-key-input">API Key (optional)</label>
+            <input id="api-key-input" name="api_key" type="password" placeholder="env default" />
+          </div>
         </form>
       </section>
     </main>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.4.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
     <script src="/static/app.js" type="module"></script>
   </body>
 </html>

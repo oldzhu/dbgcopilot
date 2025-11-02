@@ -19,7 +19,7 @@ except Exception:
 class LldbSubprocessBackend:
     name = "lldb"
 
-    def __init__(self, lldb_path: str = "lldb", timeout: float = 10.0, prompt: str = "dbgcopilot>") -> None:
+    def __init__(self, lldb_path: str = "lldb", timeout: float = 10.0, prompt: str = "(lldb)") -> None:
         self.lldb_path = lldb_path
         self.timeout = timeout
         self.prompt = prompt

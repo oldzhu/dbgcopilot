@@ -23,6 +23,7 @@ class GdbSubprocessBackend:
         self.child: Optional[pexpect.spawn] = None  # type: ignore
         # Default GDB prompt ends with "(gdb) "; match leniently with optional spaces
         self._prompt_re = re.compile(r"\(gdb\)\s", re.MULTILINE)
+        self.prompt = "(gdb) "
 
     def initialize_session(self) -> None:
         if pexpect is None:
