@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from dbgcopilot.llm import providers as provider_registry
@@ -53,6 +53,16 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
         corefile=corefile,
     )
     return JSONResponse({"session_id": session.session_id, "initial_messages": initial_messages})
+
+
+@router.delete("/sessions/{session_id}")
+async def close_session(session_id: str) -> JSONResponse:
+    try:
+        session_manager.get_session(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found")
+    await session_manager.close_session(session_id)
+    return JSONResponse({"status": "closed"})
 
 
 @router.post("/sessions/{session_id}/command")

@@ -9,7 +9,7 @@ from typing import Optional, List
 import re
 from dbgcopilot.core.state import Attempt
 from dbgcopilot.llm import providers
-from dbgcopilot.utils.io import head_tail_truncate, color_text
+from dbgcopilot.utils.io import head_tail_truncate, color_text, strip_ansi
 from pathlib import Path
 import os
 import json
@@ -118,45 +118,85 @@ class CopilotOrchestrator:
         return d
 
     def ask(self, question: str) -> str:
-        """LLM-driven with human-in-the-loop confirmations.
+        text = (question or "").strip()
+        if getattr(self.state, "pending_command", None):
+            return self._handle_command_confirmation(text)
+        return self._llm_turn(text)
 
-        Contract:
-        - The LLM proposes commands and asks for confirmation without <cmd>.
-        - After the user confirms, the LLM replies with ONLY <cmd>...</cmd>. We execute it once and return the output.
-        - We do not parse yes/no locally for command confirmations; the LLM decides when to emit <cmd>.
+    def _handle_command_confirmation(self, reply: str) -> str:
+        cmd = self.state.pending_command
+        self.state.pending_command = None
+        if not cmd:
+            return self._llm_turn(reply)
 
-        Safety/limits: If context is too large, we prompt for 'summarize and new session' or 'new session'.
-        Output: Either assistant guidance or executed command output (with debugger> echo).
-        """
+        choice = (reply or "").strip().lower()
+        if choice in {"y", "yes"}:
+            return self._execute_with_followup(cmd)
+        if choice in {"a", "auto", "auto yes", "auto-yes"}:
+            self.state.auto_accept_commands = True
+            executed = self._execute_with_followup(cmd)
+            prefix = "[copilot] Auto-accept enabled for this session."
+            return f"{prefix}\n{executed}" if executed else prefix
+
+        # Treat any other response (including blank) as skip
+        return "[copilot] Command skipped."
+
+    def _execute_with_followup(self, command: str, preface: Optional[str] = None) -> str:
+        segments: list[str] = []
+        if preface:
+            colors = getattr(self.state, "colors_enabled", True)
+            segments.append(color_text(preface, "green", enable=colors) if colors else preface)
+        exec_output = _execute_once(self, command)
+        if exec_output:
+            segments.append(exec_output)
+        followup_prompt = self._build_followup_prompt(command, exec_output)
+        followup = self._llm_turn(followup_prompt)
+        if followup:
+            segments.append(followup)
+        return "\n".join(seg for seg in segments if seg)
+
+    def _build_followup_prompt(self, command: str, exec_output: str) -> str:
+        plain = strip_ansi(exec_output or "")
+        parts = [
+            f"The debugger command `{command}` was executed.",
+            "Debugger output:",
+            plain or "(no output)",
+            "What should we do next? Remember to wrap any future debugger commands inside <cmd>...</cmd>.",
+        ]
+        return "\n".join(parts)
+
+    def _format_confirmation_prompt(self, raw_answer: str, command: str) -> str:
+        colors = getattr(self.state, "colors_enabled", True)
+        explanation = self._extract_explanation(raw_answer)
+        parts = []
+        if explanation:
+            parts.append(color_text(explanation, "green", enable=colors))
+        parts.append("[copilot] Proposed debugger command:")
+        label = (getattr(self.backend, "name", "debugger") or "debugger")
+        parts.append(_prefix_dbg_echo(command, label=label, colors=colors))
+        parts.append("[copilot] Run it? (y(es)/n(o)/a(uto yes))")
+        return "\n".join(parts)
+
+    def _extract_explanation(self, raw_answer: str) -> str:
+        return re.sub(r"<cmd>[\s\S]*?</cmd>", "", raw_answer, flags=re.IGNORECASE).strip()
+
+    def _llm_turn(self, question: str) -> str:
         text = (question or "").strip()
 
-        # Sanitize any legacy bad entries in attempts from previous versions
         if any(a is None or not isinstance(a, Attempt) for a in self.state.attempts):
             self.state.attempts = [a for a in self.state.attempts if isinstance(a, Attempt)]
 
-        # Build full transcript as conversation history
         dbg = getattr(self.backend, "name", "debugger")
         goal = (self.state.goal or "").strip()
 
-        session_cfg = {
-            "provider": self.state.provider_name,
-            "model": self.state.model_override,
-            "api_key": self.state.provider_api_key,
-        }
-
-        # Prepare conversation lines: all previous chat plus the new user message
         prev_lines = list(self.state.chatlog)
         prev_lines.append(f"User: {text}")
 
-        # Simple context size guard (character-based)
-        # Threshold chosen conservatively; providers will have token limits, this is a rough pre-check.
         MAX_CONTEXT_CHARS = int(self.prompt_config.get("max_context_chars", 16000))
         transcript_for_llm = "\n".join(prev_lines)
         if len(transcript_for_llm) > MAX_CONTEXT_CHARS:
-            # Allow two exact control phrases to break the overflow loop without using the LLM.
-            choice = (text or "").strip().lower()
+            choice = text.lower()
             if choice in {"summarize and new session", "summarise and new session"}:
-                # Prefer an LLM-generated concise summary using a trimmed context; fallback to local summary.
                 try:
                     prev_summary = _llm_summarize_session(self)
                 except Exception:
@@ -166,12 +206,10 @@ class CopilotOrchestrator:
                     self.state.session_id = str(_uuid.uuid4())[:8]
                 except Exception:
                     pass
-                # Clear heavy history
                 self.state.chatlog.clear()
                 self.state.attempts.clear()
                 self.state.facts.clear()
                 self.state.last_output = ""
-                # Seed new session with the summary as a fact for future context
                 if prev_summary:
                     self.state.facts.append(f"Summary: {prev_summary.splitlines()[0][:160]}")
                 return (
@@ -190,23 +228,18 @@ class CopilotOrchestrator:
                 self.state.facts.clear()
                 self.state.last_output = ""
                 return f"[copilot] Started a fresh session: {self.state.session_id}"
-            # Otherwise, display the prompt without appending to chat (to avoid growing context further).
             return (
                 "[copilot] Your session context is quite large. Would you like me to summarize the "
                 "current session and start a new one from that summary, or start a fresh session "
                 "without a summary? Reply with 'summarize and new session' or 'new session'."
             )
 
-        # A small context block with high-signal items we still pass along explicitly
-        # (Some LLMs benefit from repeated short context fields.)
         attempts = [a for a in self.state.attempts[-5:] if isinstance(a, Attempt)]
         attempts_txt = "\n".join(
             f"- {a.cmd}: {a.output_snippet}" for a in attempts if getattr(a, "output_snippet", "")
         )
         last_out = head_tail_truncate(self.state.last_output or "", 2000)
-        goal = (self.state.goal or "").strip()
 
-        # Language preference
         wants_zh = _wants_chinese(question)
 
         all_rules = list(self.prompt_config.get("rules", []))
@@ -235,13 +268,11 @@ class CopilotOrchestrator:
             + "\nAssistant:"
         )
 
-        # Use selected provider from state if available
         pname = getattr(self.state, "selected_provider", None) or self.state.config.get("llm_provider")
         if pname:
             prov = providers.get_provider(pname)
             if prov:
                 try:
-                    # Providers that need a session-bound instance
                     if pname == "openrouter":
                         from dbgcopilot.llm import openrouter as _or
                         ask_fn = _or.create_provider(session_config=self.state.config)
@@ -253,30 +284,30 @@ class CopilotOrchestrator:
                     else:
                         answer = prov.ask(primed_question)
 
-                    # Record raw exchange
-                    self.state.chatlog.append(f"User: {question.strip()}")
-                    self.state.chatlog.append(f"Assistant: {answer.strip()}")
+                    user_line = f"User: {question.strip()}"
+                    assistant_line = f"Assistant: {answer.strip()}"
+                    self.state.chatlog.append(user_line)
+                    self.state.chatlog.append(assistant_line)
                     self.state.facts.append(f"Q: {question.strip()}")
                     self.state.facts.append(f"A: {(answer.splitlines()[0] if answer else '').strip()}")
 
-                    # If the assistant returned a <cmd>...</cmd>, execute it.
-                    m = re.search(r"<cmd>\s*([\s\S]*?)\s*</cmd>", answer, re.IGNORECASE)
-                    if m:
-                        exec_cmd = m.group(1).strip()
-                        return _execute_once(self, exec_cmd)
+                    match = re.search(r"<cmd>\s*([\s\S]*?)\s*</cmd>", answer, re.IGNORECASE)
+                    if match:
+                        exec_cmd = match.group(1).strip()
+                        explanation = self._extract_explanation(answer)
+                        if self.state.auto_accept_commands:
+                            return self._execute_with_followup(exec_cmd, preface=explanation or None)
+                        self.state.pending_command = exec_cmd
+                        return self._format_confirmation_prompt(answer, exec_cmd)
 
-                    # Otherwise return assistant message as-is
-                    return color_text(answer, "green", enable=True) if getattr(self.state, "colors_enabled", True) else answer
+                    colors = getattr(self.state, "colors_enabled", True)
+                    return color_text(answer, "green", enable=colors) if colors else answer
                 except Exception as e:
                     msg = f"[copilot] LLM provider error: {e}"
-                    if getattr(self.state, "colors_enabled", True):
-                        return color_text(msg, "red", enable=True)
-                    return msg
+                    colors = getattr(self.state, "colors_enabled", True)
+                    return color_text(msg, "red", enable=colors) if colors else msg
 
-        # fallback placeholder
-        return (
-            "[copilot] (placeholder) I'm ready to help. Ask anything about your debug session."
-        )
+        return "[copilot] (placeholder) I'm ready to help. Ask anything about your debug session."
 
     def summary(self) -> str:
         """Return a concise session summary including debugger, goal, provider, and recent activity."""

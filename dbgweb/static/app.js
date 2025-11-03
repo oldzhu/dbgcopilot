@@ -87,6 +87,16 @@ const api = {
     }
     return resp.json();
   },
+  async closeSession(id) {
+    const resp = await fetch(`/api/sessions/${id}`, {
+      method: "DELETE",
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`close session failed: ${resp.status} ${text}`);
+    }
+    return resp.json();
+  },
 };
 
 function setStatus(text, ok = true) {
@@ -340,12 +350,7 @@ function connectWebSockets(id) {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const base = `${protocol}://${window.location.host}`;
 
-  if (debuggerSocket) {
-    debuggerSocket.close();
-  }
-  if (chatSocket) {
-    chatSocket.close();
-  }
+  disconnectWebSockets();
 
   ensureTerminal();
 
@@ -383,6 +388,23 @@ function connectWebSockets(id) {
   });
 }
 
+function disconnectWebSockets() {
+  if (debuggerSocket) {
+    debuggerSocket.close();
+    debuggerSocket = null;
+  }
+  if (chatSocket) {
+    chatSocket.close();
+    chatSocket = null;
+  }
+}
+
+function updateSessionControls(active) {
+  startSessionButton.textContent = active ? "Stop Session" : "Start Session";
+  startSessionButton.dataset.sessionState = active ? "active" : "idle";
+  startSessionButton.setAttribute("aria-pressed", active ? "true" : "false");
+}
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = chatMessage.value.trim();
@@ -404,6 +426,32 @@ chatForm.addEventListener("submit", async (event) => {
 });
 
 startSessionButton.addEventListener("click", async () => {
+  if (startSessionButton.disabled) {
+    return;
+  }
+  startSessionButton.disabled = true;
+
+  if (sessionId) {
+    const activeSession = sessionId;
+    try {
+      await api.closeSession(activeSession);
+      disconnectWebSockets();
+      sessionId = null;
+      setStatus("session: none");
+      writeDebuggerStatus(`[debugger] session ${activeSession} stopped`);
+      appendChatEntry("assistant", `[chat] session ${activeSession} stopped`);
+      updateSessionControls(false);
+    } catch (err) {
+      console.error(err);
+      setStatus(`stop error: ${err.message}`, false);
+      writeDebuggerStatus(`[error] ${err.message}`);
+      startSessionButton.disabled = false;
+      return;
+    }
+    startSessionButton.disabled = false;
+    return;
+  }
+
   const payload = {
     debugger: document.getElementById("debugger-select").value,
     provider: providerSelect.value,
@@ -414,6 +462,7 @@ startSessionButton.addEventListener("click", async () => {
 
   if (!payload.provider) {
     appendChatEntry("assistant", "[chat] select an LLM provider first");
+    startSessionButton.disabled = false;
     return;
   }
 
@@ -427,11 +476,15 @@ startSessionButton.addEventListener("click", async () => {
     appendChatEntry("assistant", `[chat] session ${sessionId} ready`);
     setStatus(`session: ${sessionId}`);
     connectWebSockets(sessionId);
+    updateSessionControls(true);
     await dispatchDebuggerCommand("");
   } catch (err) {
     console.error(err);
     setStatus(`session error: ${err.message}`, false);
     appendChatEntry("assistant", `[error] ${err.message}`);
+    updateSessionControls(false);
+  } finally {
+    startSessionButton.disabled = false;
   }
 });
 
@@ -583,7 +636,7 @@ function createFallbackTerminal() {
       controls.lastPrompt = text;
       input.dataset.placeholder = "";
     } else {
-      input.dataset.placeholder = "waiting for prompt...";
+      input.dataset.placeholder = "waiting for debugger...";
     }
     prompt.textContent = text;
   }
@@ -691,6 +744,7 @@ async function bootstrap() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  updateSessionControls(false);
   initializeTerminal();
   setupResizers();
   bootstrap();
