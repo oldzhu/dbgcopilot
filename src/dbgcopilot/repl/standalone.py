@@ -2,11 +2,12 @@
 
 Phase 2a: supports selecting GDB via a subprocess backend. LLDB will be added next.
 """
+# pyright: reportConstantRedefinition=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 from __future__ import annotations
 
 import sys
 import uuid
-from typing import Optional
+from typing import Optional, Any
 
 from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt
@@ -15,7 +16,7 @@ from dbgcopilot.utils.io import color_text
 
 # Globals for a simple REPL
 SESSION: Optional[SessionState] = None
-BACKEND = None
+BACKEND: Optional[Any] = None
 ORCH: Optional[CopilotOrchestrator] = None
 
 
@@ -24,7 +25,23 @@ def _ensure_session() -> SessionState:
     if SESSION is None:
         sid = str(uuid.uuid4())[:8]
         SESSION = SessionState(session_id=sid)
+        _install_output_sink(SESSION)
     return SESSION
+
+
+def _install_output_sink(state: SessionState) -> None:
+    def _dbg_sink(chunk: str) -> None:
+        if not chunk:
+            return
+        _echo(chunk)
+
+    def _chat_sink(chunk: str) -> None:
+        if not chunk:
+            return
+        _echo(chunk)
+
+    state.debugger_output_sink = _dbg_sink
+    state.chat_output_sink = _chat_sink
 
 
 def _echo(line: str, colors: bool = True) -> None:
@@ -81,15 +98,16 @@ def _select_gdb() -> str:
     try:
         from dbgcopilot.backends.gdb_subprocess import GdbSubprocessBackend
     except Exception as e:
-        return f"[copilot] Failed to load GDB subprocess backend: {e}"
+        return f"Failed to load GDB subprocess backend: {e}"
     BACKEND = GdbSubprocessBackend()
     try:
         BACKEND.initialize_session()
     except Exception as e:
         BACKEND = None
-        return f"[copilot] Failed to start gdb: {e}"
+        return f"Failed to start gdb: {e}"
     ORCH = CopilotOrchestrator(BACKEND, s)
-    return "[copilot] Using GDB (subprocess backend)."
+    _install_output_sink(s)
+    return "Using GDB (subprocess backend)."
 
 
 def _handle_llm(cmd: str) -> str:
@@ -98,38 +116,45 @@ def _handle_llm(cmd: str) -> str:
     from dbgcopilot.llm import providers as _prov
     s = _ensure_session()
     sel = s.selected_provider
+
     if action == "list":
         lines = ["Available LLM providers:"] + [f"- {p}" for p in _prov.list_providers()]
         return "\n".join(lines)
+
     if action == "use" and len(parts) >= 2:
         name = parts[1]
         if _prov.get_provider(name) is None:
-            return f"[copilot] Unknown provider: {name}"
+            return f"Unknown provider: {name}"
         s.selected_provider = name
-        return f"[copilot] Selected provider: {name}"
+        return f"Selected provider: {name}"
+
     if action == "models":
         provider = parts[1] if len(parts) >= 2 else (sel or "")
         if not provider:
-            return "[copilot] No provider selected. Use /llm use <name> first or pass a provider."
+            return "No provider selected. Use /llm use <name> first or pass a provider."
         if provider == "openrouter":
             try:
                 from dbgcopilot.llm import openrouter as _or
                 models = _or.list_models(s.config)
                 if not models:
-                    return "[copilot] No models returned. You may need to set an API key."
+                    return "No models returned. You may need to set an API key."
                 return "OpenRouter models:\n" + "\n".join(f"- {m}" for m in models)
             except Exception as e:
-                return f"[copilot] Error listing models: {e}"
+                return f"Error listing models: {e}"
         if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
             try:
                 from dbgcopilot.llm import openai_compat as _oa
                 models = _oa.list_models(s.config, name=provider)
                 if not models:
-                    return f"[copilot] No models returned from {provider}. Some providers do not support model listing via API; you can still set a model with /llm model."
+                    return (
+                        f"No models returned from {provider}. Some providers do not support model listing "
+                        "via API; you can still set a model with /llm model."
+                    )
                 return f"{provider} models:\n" + "\n".join(f"- {m}" for m in models)
             except Exception as e:
-                return f"[copilot] Error listing models for {provider}: {e}"
-        return f"[copilot] Model listing not supported for provider: {provider}"
+                return f"Error listing models for {provider}: {e}"
+        return f"Model listing not supported for provider: {provider}"
+
     if action == "model":
         if len(parts) == 2:
             provider = sel
@@ -144,27 +169,29 @@ def _handle_llm(cmd: str) -> str:
             return "Usage: /llm model [provider] <model>"
         if provider == "openrouter":
             s.config["openrouter_model"] = model
-            return f"[copilot] OpenRouter model set to: {model}"
+            return f"OpenRouter model set to: {model}"
         if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
             key = provider.replace("-", "_") + "_model"
             s.config[key] = model
-            return f"[copilot] {provider} model set to: {model}"
-        return f"[copilot] Setting model not supported for provider: {provider}"
+            return f"{provider} model set to: {model}"
+        return f"Setting model not supported for provider: {provider}"
+
     if action == "key" and len(parts) >= 3:
         provider = parts[1]
         api_key = " ".join(parts[2:]).strip()
         if provider == "openrouter":
             if api_key:
                 s.config["openrouter_api_key"] = api_key
-                return "[copilot] OpenRouter API key set for this session."
-            return "[copilot] Missing API key."
+                return "OpenRouter API key set for this session."
+            return "Missing API key."
         if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
             if api_key:
                 key = provider.replace("-", "_") + "_api_key"
                 s.config[key] = api_key
-                return f"[copilot] {provider} API key set for this session."
-            return "[copilot] Missing API key."
-        return f"[copilot] API key setting not supported for provider: {provider}"
+                return f"{provider} API key set for this session."
+            return "Missing API key."
+        return f"API key setting not supported for provider: {provider}"
+
     return (
         "Usage: /llm list | /llm use <name> | /llm models [provider] | "
         "/llm model [provider] <model> | /llm key <provider> <api_key>"
@@ -181,13 +208,14 @@ def _select_lldb() -> str:
         BACKEND = LldbApiBackend()
         BACKEND.initialize_session()
         ORCH = CopilotOrchestrator(BACKEND, s)
-        return "[copilot] Using LLDB (API backend)."
+        _install_output_sink(s)
+        return "Using LLDB (API backend)."
     except Exception as api_err:
         try:
             from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
         except Exception as e:
             return (
-                f"[copilot] Failed to load LLDB backends: API error: {api_err}; subprocess import error: {e}\n"
+                f"Failed to load LLDB backends: API error: {api_err}; subprocess import error: {e}\n"
                 + _lldb_install_hint()
             )
         BACKEND = LldbSubprocessBackend()
@@ -196,21 +224,22 @@ def _select_lldb() -> str:
         except Exception as sub_err:
             BACKEND = None
             return (
-                f"[copilot] Failed to start lldb (API error: {api_err}); subprocess error: {sub_err}\n"
+                f"Failed to start lldb (API error: {api_err}); subprocess error: {sub_err}\n"
                 + _lldb_install_hint()
             )
     ORCH = CopilotOrchestrator(BACKEND, s)
-    return "[copilot] Using LLDB (subprocess backend; Python API unavailable).\n" + _lldb_install_hint()
+    _install_output_sink(s)
+    return "Using LLDB (subprocess backend; Python API unavailable).\n" + _lldb_install_hint()
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     _ensure_session()
-    _echo("[copilot] Standalone REPL. Type /help. Choose a debugger with /use <debugger> (gdb|lldb).")
+    _echo("Standalone REPL. Type /help. Choose a debugger with /use <debugger> (gdb|lldb).")
     while True:
         try:
             line = input("copilot> ")
         except EOFError:
-            _echo("[copilot] Exiting copilot>")
+            _echo("Exiting copilot>")
             return 0
         except KeyboardInterrupt:
             _echo("^C")
@@ -219,7 +248,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not cmd:
             continue
         if cmd in {"exit", "quit"}:
-            _echo("[copilot] Exiting copilot>")
+            _echo("Exiting copilot>")
             return 0
 
         # Slash commands
@@ -236,62 +265,63 @@ def main(argv: Optional[list[str]] = None) -> int:
                 elif choice == "lldb":
                     _echo(_select_lldb())
                 else:
-                    _echo("[copilot] Supported: /use gdb | /use lldb")
+                    _echo("Supported: /use gdb | /use lldb")
                 continue
             if verb == "/new":
                 sid = str(uuid.uuid4())[:8]
                 globals()["SESSION"] = SessionState(session_id=sid)
                 if ORCH is not None and BACKEND is not None:
                     globals()["ORCH"] = CopilotOrchestrator(BACKEND, globals()["SESSION"])  # reload prompts per session
-                _echo(f"[copilot] New session: {sid}")
+                    _install_output_sink(globals()["SESSION"])
+                _echo(f"New session: {sid}")
                 continue
             
             if verb == "/chatlog":
                 s = _ensure_session()
                 if not s.chatlog:
-                    _echo("[copilot] No chat yet.")
+                    _echo("No chat yet.")
                 else:
                     for line in s.chatlog[-200:]:
                         _echo(line)
                 continue
             if verb == "/config":
                 s = _ensure_session()
-                _echo(f"[copilot] Config: {s.config}")
-                _echo(f"[copilot] Selected provider: {s.selected_provider}")
+                _echo(f"Config: {s.config}")
+                _echo(f"Selected provider: {s.selected_provider}")
                 continue
             if verb == "/agent":
-                _echo("[copilot] Agent mode has moved to the new dbgagent tool.")
+                _echo("Agent mode has moved to the new dbgagent tool.")
                 continue
             if verb == "/prompts":
                 if arg.strip().lower() == "show":
                     try:
                         if ORCH is None:
-                            _echo("[copilot] No debugger selected.")
+                            _echo("No debugger selected.")
                         else:
                             cfg = ORCH.get_prompt_config()
                             import json as _json
                             src = cfg.get("_source", "defaults")
                             txt = _json.dumps(cfg, indent=2, ensure_ascii=False)
-                            _echo(f"[copilot] Prompt source: {src}")
+                            _echo(f"Prompt source: {src}")
                             _echo(txt)
                     except Exception as e:
-                        _echo(f"[copilot] Error showing prompts: {e}")
+                        _echo(f"Error showing prompts: {e}")
                 elif arg.strip().lower() == "reload":
                     try:
                         if ORCH is None:
-                            _echo("[copilot] No debugger selected.")
+                            _echo("No debugger selected.")
                         else:
                             _echo(ORCH.reload_prompts())
                     except Exception as e:
-                        _echo(f"[copilot] Error reloading prompts: {e}")
+                        _echo(f"Error reloading prompts: {e}")
                 else:
                     _echo("Usage: /prompts show | /prompts reload")
                 continue
             if verb == "/exec":
                 if BACKEND is None:
-                    _echo("[copilot] No debugger selected. Use /use gdb first.")
+                    _echo("No debugger selected. Use /use gdb first.")
                 elif not arg:
-                    _echo("[copilot] Usage: /exec <cmd>")
+                    _echo("Usage: /exec <cmd>")
                 else:
                     label = getattr(BACKEND, "name", "debugger") or "debugger"
                     s = _ensure_session()
@@ -300,7 +330,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     try:
                         out = BACKEND.run_command(arg)
                     except Exception as e:
-                        out = f"[copilot] Error: {e}"
+                        out = f"Error: {e}"
                     s.last_output = out
                     s.attempts.append(Attempt(cmd=arg, output_snippet=(out or "")[:160]))
                     if out:
@@ -325,24 +355,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                             BACKEND.run_command(f"set style enabled {'on' if enable else 'off'}")
                     except Exception:
                         pass
-                _echo(f"[copilot] Colors {'enabled' if enable else 'disabled'}.")
+                _echo(f"Colors {'enabled' if enable else 'disabled'}.")
                 continue
             
             if verb == "/llm":
                 _echo(_handle_llm(arg))
                 continue
-            _echo("[copilot] Unknown slash command. Try /help")
+            _echo("Unknown slash command. Try /help")
             continue
 
         # Natural language → orchestrator
         if ORCH is None:
-            _echo("[copilot] No debugger selected. Use /use gdb first.")
+            _echo("No debugger selected. Use /use gdb first.")
             continue
         try:
             resp = ORCH.ask(cmd)
-            _echo(resp)
+            if resp:
+                _echo(resp)
         except Exception as e:
-            _echo(f"[copilot] Error: {e}")
+            _echo(f"Error: {e}")
 
     return 0
 

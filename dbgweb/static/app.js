@@ -329,6 +329,89 @@ function appendChatEntry(role, text) {
   chatHistory.scrollTop = chatHistory.scrollHeight;
 }
 
+function appendChatProposal(data) {
+  const entry = document.createElement("div");
+  entry.className = "chat-entry assistant proposal";
+
+  const card = document.createElement("div");
+  card.className = "chat-proposal-card";
+
+  const heading = document.createElement("div");
+  heading.className = "chat-proposal-heading";
+  heading.textContent = "Proposed debugger command";
+  card.appendChild(heading);
+
+  if (data.explanation) {
+    const explanation = document.createElement("p");
+    explanation.className = "chat-proposal-explanation";
+    explanation.textContent = data.explanation;
+    card.appendChild(explanation);
+  }
+
+  const commandBlock = document.createElement("pre");
+  commandBlock.className = "chat-proposal-command";
+  const label = data.label || "debugger";
+  commandBlock.textContent = `${label}> ${data.command}`;
+  card.appendChild(commandBlock);
+
+  const actions = document.createElement("div");
+  actions.className = "chat-proposal-actions";
+  const buttons = [
+    { label: "Approve", value: "y", friendly: "Approve (y)" },
+    { label: "Skip", value: "n", friendly: "Skip (n)" },
+    { label: "Auto-Approve", value: "a", friendly: "Auto-approve (a)" },
+  ];
+
+  buttons.forEach(({ label: btnLabel, value, friendly }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = btnLabel;
+    button.addEventListener("click", () => handleProposalAction(entry, value, friendly));
+    actions.appendChild(button);
+  });
+  card.appendChild(actions);
+
+  const status = document.createElement("div");
+  status.className = "chat-proposal-status";
+  status.textContent = "Awaiting your decision.";
+  card.appendChild(status);
+
+  entry.appendChild(card);
+  chatHistory.appendChild(entry);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+async function handleProposalAction(entry, value, friendly) {
+  if (!sessionId) {
+    appendChatEntry("assistant", "[chat] start a session first");
+    return;
+  }
+  const status = entry.querySelector(".chat-proposal-status");
+  const buttons = entry.querySelectorAll(".chat-proposal-actions button");
+  buttons.forEach((button) => {
+    button.disabled = true;
+  });
+  if (status) {
+    status.textContent = "Submitting...";
+  }
+  try {
+    await api.sendChat(sessionId, value);
+    appendChatEntry("user", friendly);
+    if (status) {
+      status.textContent = `You chose: ${friendly}`;
+    }
+    entry.dataset.state = "resolved";
+  } catch (err) {
+    console.error(err);
+    if (status) {
+      status.textContent = `Error: ${err.message}`;
+    }
+    buttons.forEach((button) => {
+      button.disabled = false;
+    });
+  }
+}
+
 function clearConsole() {
   const term = ensureTerminal();
   if (!term) {
@@ -376,9 +459,20 @@ function connectWebSockets(id) {
 
   chatSocket = new WebSocket(`${base}/ws/chat/${id}`);
   chatSocket.addEventListener("message", (event) => {
-    if (event.data) {
-      appendChatEntry("assistant", event.data);
+    const message = typeof event.data === "string" ? event.data : "";
+    if (!message) {
+      return;
     }
+    try {
+      const parsed = JSON.parse(message);
+      if (parsed && parsed.type === "command_proposal" && parsed.command) {
+        appendChatProposal(parsed);
+        return;
+      }
+    } catch (err) {
+      // Non-JSON payloads fall back to plain text rendering.
+    }
+    appendChatEntry("assistant", message);
   });
   chatSocket.addEventListener("open", () => {
     appendChatEntry("assistant", "[chat] connected");
@@ -462,6 +556,14 @@ startSessionButton.addEventListener("click", async () => {
 
   if (!payload.provider) {
     appendChatEntry("assistant", "[chat] select an LLM provider first");
+    startSessionButton.disabled = false;
+    return;
+  }
+
+  if (!payload.api_key) {
+    window.alert("API key is required to start a session.");
+    appendChatEntry("assistant", "[chat] set an API key before starting a session");
+    setStatus("api key required", false);
     startSessionButton.disabled = false;
     return;
   }

@@ -3,11 +3,12 @@
 Wires an LLM (via LangChain in future iterations) to tools that run debugger commands
 and manage session state. Currently a minimal placeholder.
 """
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownParameterType=false, reportUnusedFunction=false
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, Any
 import re
-from dbgcopilot.core.state import Attempt
+from dbgcopilot.core.state import Attempt, SessionState
 from dbgcopilot.llm import providers
 from dbgcopilot.utils.io import head_tail_truncate, color_text, strip_ansi
 from pathlib import Path
@@ -25,9 +26,9 @@ class CopilotOrchestrator:
     - Use a Backend to run commands safely
     """
 
-    def __init__(self, backend, state):
-        self.backend = backend
-        self.state = state
+    def __init__(self, backend: Any, state: SessionState):
+        self.backend: Any = backend
+        self.state: SessionState = state
         # Load prompt config
         self.prompt_source = "defaults"
         self.prompt_config = self._load_prompt_config()
@@ -54,7 +55,7 @@ class CopilotOrchestrator:
                 return p
         return here.parents[-1]
 
-    def _load_prompt_config(self) -> dict:
+    def _load_prompt_config(self) -> dict[str, Any]:
         """Load prompt config with precedence: env -> profile -> default file -> defaults."""
         cfg = dict(DEFAULT_PROMPT_CONFIG)
         source = "defaults"
@@ -110,9 +111,9 @@ class CopilotOrchestrator:
 
     def reload_prompts(self) -> str:
         self.prompt_config = self._load_prompt_config()
-        return f"[copilot] Prompts reloaded from {self.prompt_source}."
+        return f"Prompts reloaded from {self.prompt_source}."
 
-    def get_prompt_config(self) -> dict:
+    def get_prompt_config(self) -> dict[str, Any]:
         d = dict(self.prompt_config)
         d["_source"] = self.prompt_source
         return d
@@ -135,23 +136,23 @@ class CopilotOrchestrator:
         if choice in {"a", "auto", "auto yes", "auto-yes"}:
             self.state.auto_accept_commands = True
             executed = self._execute_with_followup(cmd)
-            prefix = "[copilot] Auto-accept enabled for this session."
+            prefix = "Auto-accept enabled for this session."
             return f"{prefix}\n{executed}" if executed else prefix
 
         # Treat any other response (including blank) as skip
-        return "[copilot] Command skipped."
+        return "Command skipped."
 
     def _execute_with_followup(self, command: str, preface: Optional[str] = None) -> str:
         segments: list[str] = []
-        if preface:
+        if preface and not self.state.last_answer_streamed:
             colors = getattr(self.state, "colors_enabled", True)
             segments.append(color_text(preface, "green", enable=colors) if colors else preface)
-        exec_output = _execute_once(self, command)
-        if exec_output:
+        exec_output, streamed = _execute_once(self, command)
+        if exec_output and not streamed:
             segments.append(exec_output)
         followup_prompt = self._build_followup_prompt(command, exec_output)
         followup = self._llm_turn(followup_prompt)
-        if followup:
+        if followup and not self.state.last_answer_streamed:
             segments.append(followup)
         return "\n".join(seg for seg in segments if seg)
 
@@ -171,20 +172,51 @@ class CopilotOrchestrator:
         parts = []
         if explanation:
             parts.append(color_text(explanation, "green", enable=colors))
-        parts.append("[copilot] Proposed debugger command:")
+        parts.append("Proposed debugger command:")
         label = (getattr(self.backend, "name", "debugger") or "debugger")
         parts.append(_prefix_dbg_echo(command, label=label, colors=colors))
-        parts.append("[copilot] Run it? (y(es)/n(o)/a(uto yes))")
+        parts.append("Run it? (y(es)/n(o)/a(uto yes))")
+        proposal = {
+            "type": "command_proposal",
+            "command": command,
+            "label": label,
+        }
+        if explanation:
+            proposal["explanation"] = strip_ansi(explanation)
+        self.state.pending_chat_events.append(proposal)
         return "\n".join(parts)
 
     def _extract_explanation(self, raw_answer: str) -> str:
         return re.sub(r"<cmd>[\s\S]*?</cmd>", "", raw_answer, flags=re.IGNORECASE).strip()
 
+    def _emit_chat(self, text: str, *, color: Optional[str] = "green") -> bool:
+        if not text:
+            self.state.last_answer_streamed = False
+            return False
+        colors_enabled = getattr(self.state, "colors_enabled", True)
+        payload = text
+        if color and colors_enabled:
+            # Avoid wrapping text that already includes ANSI sequences
+            if strip_ansi(text) == text:
+                payload = color_text(text, color, enable=colors_enabled)
+            else:
+                payload = text
+        sink = getattr(self.state, "chat_output_sink", None)
+        if sink:
+            try:
+                sink(payload)
+                self.state.last_answer_streamed = True
+                return True
+            except Exception:
+                pass
+        self.state.pending_chat.append(payload)
+        self.state.last_answer_streamed = True
+        return True
+
     def _llm_turn(self, question: str) -> str:
         text = (question or "").strip()
 
-        if any(a is None or not isinstance(a, Attempt) for a in self.state.attempts):
-            self.state.attempts = [a for a in self.state.attempts if isinstance(a, Attempt)]
+        self.state.last_answer_streamed = False
 
         dbg = getattr(self.backend, "name", "debugger")
         goal = (self.state.goal or "").strip()
@@ -213,7 +245,7 @@ class CopilotOrchestrator:
                 if prev_summary:
                     self.state.facts.append(f"Summary: {prev_summary.splitlines()[0][:160]}")
                 return (
-                    f"[copilot] Started a new session: {self.state.session_id}\n"
+                    f"Started a new session: {self.state.session_id}\n"
                     "Here is a brief summary of the previous session for reference:\n"
                     + prev_summary
                 )
@@ -227,14 +259,13 @@ class CopilotOrchestrator:
                 self.state.attempts.clear()
                 self.state.facts.clear()
                 self.state.last_output = ""
-                return f"[copilot] Started a fresh session: {self.state.session_id}"
+                return f"Started a fresh session: {self.state.session_id}"
             return (
-                "[copilot] Your session context is quite large. Would you like me to summarize the "
+                "Your session context is quite large. Would you like me to summarize the "
                 "current session and start a new one from that summary, or start a fresh session "
                 "without a summary? Reply with 'summarize and new session' or 'new session'."
             )
-
-        attempts = [a for a in self.state.attempts[-5:] if isinstance(a, Attempt)]
+        attempts = self.state.attempts[-5:]
         attempts_txt = "\n".join(
             f"- {a.cmd}: {a.output_snippet}" for a in attempts if getattr(a, "output_snippet", "")
         )
@@ -291,23 +322,37 @@ class CopilotOrchestrator:
                     self.state.facts.append(f"Q: {question.strip()}")
                     self.state.facts.append(f"A: {(answer.splitlines()[0] if answer else '').strip()}")
 
+                    explanation = self._extract_explanation(answer)
+                    display_text = (explanation or answer).strip()
+                    auto_mode = getattr(self.state, "auto_accept_commands", False)
+                    streamed = False
+                    if auto_mode and display_text:
+                        streamed = self._emit_chat(display_text)
+
                     match = re.search(r"<cmd>\s*([\s\S]*?)\s*</cmd>", answer, re.IGNORECASE)
                     if match:
                         exec_cmd = match.group(1).strip()
-                        explanation = self._extract_explanation(answer)
-                        if self.state.auto_accept_commands:
-                            return self._execute_with_followup(exec_cmd, preface=explanation or None)
+                        if auto_mode:
+                            return self._execute_with_followup(exec_cmd, preface=display_text or None)
                         self.state.pending_command = exec_cmd
                         return self._format_confirmation_prompt(answer, exec_cmd)
 
                     colors = getattr(self.state, "colors_enabled", True)
-                    return color_text(answer, "green", enable=colors) if colors else answer
+                    result = color_text(answer, "green", enable=colors) if colors else answer
+                    if auto_mode and streamed and getattr(self.state, "last_answer_streamed", False):
+                        return ""
+                    return result
                 except Exception as e:
-                    msg = f"[copilot] LLM provider error: {e}"
+                    msg = f"LLM provider error: {e}"
                     colors = getattr(self.state, "colors_enabled", True)
+                    auto_mode = getattr(self.state, "auto_accept_commands", False)
+                    if auto_mode:
+                        handled = self._emit_chat(msg, color="red")
+                        if handled and getattr(self.state, "last_answer_streamed", False):
+                            return ""
                     return color_text(msg, "red", enable=colors) if colors else msg
 
-        return "[copilot] (placeholder) I'm ready to help. Ask anything about your debug session."
+        return "I'm ready to help. Ask anything about your debug session."
 
     def summary(self) -> str:
         """Return a concise session summary including debugger, goal, provider, and recent activity."""
@@ -325,7 +370,7 @@ class CopilotOrchestrator:
         last_out = head_tail_truncate(self.state.last_output or "", 400)
 
         parts = [
-            f"[copilot] Session {self.state.session_id}",
+            f"Session {self.state.session_id}",
             f"Debugger: {dbg}",
             f"Provider: {provider}",
         ]
@@ -507,7 +552,7 @@ def _format_confirmation_message(cmds: List[str], colors: bool = True) -> str:
     if colors:
         echo_lines = [color_text(l, "cyan", bold=True, enable=True) for l in echo_lines]
     body = "\n".join(echo_lines)
-    return f"[copilot] I plan to run:\n{body}\nConfirm? (yes/no)"
+    return f"I plan to run:\n{body}\nConfirm? (yes/no)"
 
 
 def _prefix_dbg_echo(cmd: str, label: str = "gdb", colors: bool = True) -> str:
@@ -515,7 +560,7 @@ def _prefix_dbg_echo(cmd: str, label: str = "gdb", colors: bool = True) -> str:
     return color_text(line, "cyan", bold=True, enable=True) if colors else line
 
 
-def _call_llm(provider_name: str, question: str, state) -> str:
+def _call_llm(provider_name: str, question: str, state: SessionState) -> str:
     prov = providers.get_provider(provider_name)
     if provider_name == "openrouter":
         from dbgcopilot.llm import openrouter as _or
@@ -528,7 +573,7 @@ def _call_llm(provider_name: str, question: str, state) -> str:
     return prov.ask(question) if prov else ""
 
 
-def _execute_and_format(backend, cmd: str, colors: bool) -> str:
+def _execute_and_format(backend: Any, cmd: str, colors: bool) -> str:
     try:
         out = backend.run_command(cmd)
         label = getattr(backend, "name", "debugger") or "debugger"
@@ -536,52 +581,63 @@ def _execute_and_format(backend, cmd: str, colors: bool) -> str:
         full = f"{echoed}\n{out}" if out else echoed
         return full
     except Exception as e:
-        return f"[copilot] Error running '{cmd}': {e}"
+        return f"Error running '{cmd}': {e}"
 
 
-def _llm_summarize_session(self) -> str:
-        """Ask the LLM for a concise session summary using trimmed, high-signal context.
+def _llm_summarize_session(self: "CopilotOrchestrator") -> str:
+    """Ask the LLM for a concise session summary using trimmed, high-signal context.
 
-        Returns plain text. Falls back to local summary on provider errors.
-        """
-        dbg = getattr(self.backend, "name", "debugger")
-        goal = (self.state.goal or "").strip()
-        attempts = [a for a in self.state.attempts[-5:] if isinstance(a, Attempt)]
-        attempts_txt = "\n".join(f"- {a.cmd}: {a.output_snippet}" for a in attempts if getattr(a, "output_snippet", ""))
-        last_out = head_tail_truncate(self.state.last_output or "", 1200)
-        # Use only the last ~40 chat lines to avoid bloat
-        chat_tail = self.state.chatlog[-40:]
-        chat_txt = "\n".join(chat_tail)
-        # Build a compact prompt for summarization
-        prompt = (
-            "You are a helpful debugging assistant. Produce a concise summary of the session below.\n"
-            "Keep it to 5-8 bullet points, plus one short suggested next step if relevant.\n"
-            "Do NOT include any preamble or extra text; output only the summary text.\n\n"
-            + (f"Goal: {goal}\n" if goal else "")
-            + (f"Recent commands and snippets:\n{attempts_txt}\n" if attempts_txt else "")
-            + (f"Last output (truncated):\n{last_out}\n" if last_out else "")
-            + (f"Recent chat (tail):\n{chat_txt}\n" if chat_txt else "")
-            + "\nSummary:"
-        )
-        pname = getattr(self.state, "selected_provider", None) or self.state.config.get("llm_provider")
-        if pname:
-            try:
-                return _call_llm(pname, prompt, self.state)
-            except Exception:
-                pass
-        # Fallback to local summary
-        return self.summary()
+    Returns plain text. Falls back to local summary on provider errors.
+    """
+    goal = (self.state.goal or "").strip()
+    attempts = self.state.attempts[-5:]
+    attempts_txt = "\n".join(
+        f"- {a.cmd}: {a.output_snippet}" for a in attempts if getattr(a, "output_snippet", "")
+    )
+    last_out = head_tail_truncate(self.state.last_output or "", 1200)
+    # Use only the last ~40 chat lines to avoid bloat
+    chat_tail = self.state.chatlog[-40:]
+    chat_txt = "\n".join(chat_tail)
+    # Build a compact prompt for summarization
+    prompt = (
+        "You are a helpful debugging assistant. Produce a concise summary of the session below.\n"
+        "Keep it to 5-8 bullet points, plus one short suggested next step if relevant.\n"
+        "Do NOT include any preamble or extra text; output only the summary text.\n\n"
+        + (f"Goal: {goal}\n" if goal else "")
+        + (f"Recent commands and snippets:\n{attempts_txt}\n" if attempts_txt else "")
+        + (f"Last output (truncated):\n{last_out}\n" if last_out else "")
+        + (f"Recent chat (tail):\n{chat_txt}\n" if chat_txt else "")
+        + "\nSummary:"
+    )
+    pname = getattr(self.state, "selected_provider", None) or self.state.config.get("llm_provider")
+    if pname:
+        try:
+            return _call_llm(pname, prompt, self.state)
+        except Exception:
+            pass
+    # Fallback to local summary
+    return self.summary()
 
 
-def _execute_once(self, exec_cmd: str) -> str:
-    """Execute a single command and return its output."""
+def _execute_once(self: "CopilotOrchestrator", exec_cmd: str) -> tuple[str, bool]:
+    """Execute a single command and return its output along with streaming status."""
     colors = getattr(self.state, "colors_enabled", True)
     out = _execute_and_format(self.backend, exec_cmd, colors=colors)
     self.state.last_output = out
     self.state.attempts.append(Attempt(cmd=exec_cmd, output_snippet=(out or "")[:160]))
     self.state.chatlog.append(f"Assistant: (executed) {exec_cmd}\n" + (out or ""))
+    streamed = False
+    sink = getattr(self.state, "debugger_output_sink", None)
+    if sink:
+        try:
+            sink(out)
+            streamed = True
+        except Exception:
+            streamed = False
     if out:
+        if not streamed:
+            self.state.pending_outputs.append(out)
         self.state.facts.append(f"O: {out.splitlines()[0]}")
-    return out
+    return out, streamed
 
 

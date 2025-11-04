@@ -7,6 +7,7 @@ body {
   font-family: Arial, sans-serif;
   background-color: #1e1e1e;
   color: #d4d4d4;
+  font-size: 14px;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -51,6 +52,7 @@ body {
   padding: 1rem;
   overflow: hidden;
   min-height: 0;
+  font-size: 0.95rem;
 }
 
 #explorer-pane {
@@ -97,7 +99,7 @@ body {
 }
 
 .session-form label {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #c5c5c5;
 }
 
@@ -111,9 +113,9 @@ body {
   background-color: #2d2d30;
   color: #d4d4d4;
   border: 1px solid #3c3c3c;
-  padding: 0.5rem;
+  padding: 0.4rem 0.5rem;
   border-radius: 3px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .session-form button,
@@ -153,6 +155,7 @@ body {
   display: flex;
   justify-content: space-between;
   cursor: pointer;
+  font-size: 0.85rem;
 }
 
 .workspace-list li:hover {
@@ -263,7 +266,8 @@ body {
 }
 
 .chat-entry {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.9rem;
 }
 
 .chat-entry.user {
@@ -272,6 +276,75 @@ body {
 
 .chat-entry.assistant {
   color: #9cdcfe;
+}
+
+.chat-entry.assistant.proposal {
+  color: #d4d4d4;
+}
+
+.chat-proposal-card {
+  background-color: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.chat-proposal-heading {
+  font-weight: 600;
+  color: #c5c5c5;
+}
+
+.chat-proposal-explanation {
+  margin: 0;
+  color: #d4d4d4;
+  font-size: 0.85rem;
+}
+
+.chat-proposal-command {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  background-color: #1b1b1b;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #9cdcfe;
+  font-family: "Fira Mono", "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-proposal-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-proposal-actions button {
+  flex: 1;
+  background-color: #0e639c;
+  border: 1px solid #1177bb;
+  color: #ffffff;
+  border-radius: 3px;
+  padding: 0.4rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.chat-proposal-actions button:hover {
+  background-color: #1177bb;
+}
+
+.chat-proposal-actions button:disabled {
+  background-color: #3c3c3c;
+  border-color: #3c3c3c;
+  cursor: default;
+}
+
+.chat-proposal-status {
+  font-size: 0.8rem;
+  color: #c5c5c5;
 }
 
 .chat-input {
