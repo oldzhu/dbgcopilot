@@ -5,7 +5,7 @@ Suitable for the standalone copilot> REPL where we're outside of GDB.
 """
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, Any
 import re
 
 try:
@@ -17,10 +17,12 @@ except Exception as _e:  # pragma: no cover - import error surfaced at runtime
 class GdbSubprocessBackend:
     name = "gdb"
 
+    _EXIT_COMMANDS = {"quit", "exit", "q"}
+
     def __init__(self, gdb_path: str = "gdb", timeout: float = 10.0) -> None:
         self.gdb_path = gdb_path
         self.timeout = timeout
-        self.child: Optional[pexpect.spawn] = None  # type: ignore
+        self.child: Optional[Any] = None
         # Default GDB prompt ends with "(gdb) "; match leniently with optional spaces
         self._prompt_re = re.compile(r"\(gdb\)\s", re.MULTILINE)
         self.prompt = "(gdb) "
@@ -50,26 +52,28 @@ class GdbSubprocessBackend:
 
     # Internal helpers
     def _expect_prompt(self) -> str:
-        if not self.child:
+        if self.child is None:
             raise RuntimeError("GDB subprocess is not running")
+        child: Any = self.child
         # Expect either the prompt or EOF/timeout; let exceptions surface for caller
-        self.child.expect(self._prompt_re)
-        return self.child.before or ""
+        child.expect(self._prompt_re)
+        return child.before or ""
 
     def _send_and_capture(self, cmd: str, timeout: Optional[float] = None) -> str:
-        if not self.child:
+        if self.child is None:
             raise RuntimeError("GDB subprocess is not running")
+        child: Any = self.child
         # Send command and wait for next prompt; capture output in-between
-        self.child.sendline(cmd)
+        child.sendline(cmd)
         # Use per-call timeout if provided
-        old_timeout = self.child.timeout
+        old_timeout = child.timeout
         if timeout is not None:
-            self.child.timeout = timeout
+            child.timeout = timeout
         try:
-            self.child.expect(self._prompt_re)
-            out = self.child.before or ""
+            child.expect(self._prompt_re)
+            out = child.before or ""
         finally:
-            self.child.timeout = old_timeout
+            child.timeout = old_timeout
         # Strip a single trailing newline that typically precedes the prompt
         # Also remove echoed command if present as the first line
         text = out.lstrip("\r\n")
@@ -79,7 +83,7 @@ class GdbSubprocessBackend:
         return "\n".join(lines)
 
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
-        if not self.child:
+        if self.child is None:
             raise RuntimeError("GDB subprocess is not initialized; call initialize_session()")
         # Split multiple commands on newlines and ';'
         parts: List[str] = []
@@ -90,6 +94,12 @@ class GdbSubprocessBackend:
 
         outputs: List[str] = []
         for part in parts:
+            lower = part.lower()
+            if lower in self._EXIT_COMMANDS:
+                msg = self._handle_exit_command(part)
+                if msg:
+                    outputs.append(msg)
+                break
             try:
                 out = self._send_and_capture(part, timeout=timeout)
             except pexpect.TIMEOUT as e:  # type: ignore[attr-defined]
@@ -105,15 +115,42 @@ class GdbSubprocessBackend:
             outputs.append(out.replace("\r\n", "\n"))
         return "\n".join(o for o in outputs if o)
 
+    def _handle_exit_command(self, cmd: str) -> str:
+        if self.child is None:
+            return "[gdb closed] session already terminated"
+        child: Any = self.child
+        try:
+            child.sendline(cmd)
+            try:
+                child.expect(pexpect.EOF, timeout=self.timeout)  # type: ignore[arg-type]
+            except Exception:
+                # Swallow EOF/timeout errors; we'll reset below regardless
+                pass
+        finally:
+            try:
+                child.close(force=True)
+            except Exception:
+                pass
+            self.child = None
+
+        try:
+            self.initialize_session()
+        except Exception as exc:
+            # Surface a concise error if restart fails
+            return f"[gdb closed] {cmd}: {exc}"
+        return "[gdb] session restarted; ready for commands"
+
     def __del__(self):  # pragma: no cover - best-effort cleanup
         try:
-            if self.child and self.child.isalive():
-                # Try a graceful quit without confirmation
-                try:
-                    self.child.sendline("quit")
-                    self.child.expect(pexpect.EOF, timeout=1)  # type: ignore[arg-type]
-                except Exception:
-                    self.child.close(force=True)
+            if self.child:
+                child: Any = self.child
+                if child.isalive():
+                    # Try a graceful quit without confirmation
+                    try:
+                        child.sendline("quit")
+                        child.expect(pexpect.EOF, timeout=1)  # type: ignore[arg-type]
+                    except Exception:
+                        child.close(force=True)
         except Exception:
             pass
 

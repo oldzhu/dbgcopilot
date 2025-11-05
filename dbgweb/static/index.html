@@ -45,18 +45,66 @@
       <div class="divider" role="separator" aria-orientation="vertical" tabindex="0" data-target="chat-pane"></div>
 
       <section id="chat-pane" class="pane chat" aria-label="Chat">
-        <h2>Assistant Chat</h2>
+        <div class="chat-header">
+          <h2>Coliot Chat</h2>
+          <button
+            id="chat-config-button"
+            class="chat-config-button"
+            type="button"
+            aria-label="Configure chat"
+            aria-haspopup="true"
+            aria-expanded="false"
+            aria-controls="chat-config-panel"
+          >
+            <span aria-hidden="true">⚙️</span>
+            <span class="chat-config-tooltip" role="status">Configure Chat...</span>
+          </button>
+        </div>
         <div id="chat-history" class="chat-history"></div>
         <form id="chat-form" class="chat-input">
           <textarea id="chat-message" rows="3" placeholder="Ask for guidance…"></textarea>
           <div class="chat-controls">
             <button type="submit">Send</button>
           </div>
-          <div class="chat-settings" role="group" aria-label="LLM settings">
+        </form>
+        <div
+          id="chat-config-panel"
+          class="chat-config-panel"
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="chat-config-title"
+          tabindex="-1"
+          hidden
+        >
+          <div class="chat-config-header">
+            <h3 id="chat-config-title">Chat Settings</h3>
+            <button type="button" id="chat-config-close" aria-label="Close chat settings">✕</button>
+          </div>
+          <div class="chat-config-body" role="group" aria-label="LLM settings">
             <label for="provider-select">LLM Provider</label>
-            <select id="provider-select" name="provider">
-              <option value="">Loading…</option>
-            </select>
+            <div class="select-wrapper">
+              <div id="provider-tooltip" class="select-tooltip" role="status" aria-live="polite"></div>
+              <button
+                type="button"
+                id="provider-select-trigger"
+                class="select-trigger"
+                aria-haspopup="listbox"
+                aria-expanded="false"
+                aria-controls="provider-options"
+              >
+                Loading…
+              </button>
+              <ul id="provider-options" class="select-options" role="listbox" tabindex="-1" hidden></ul>
+              <select
+                id="provider-select"
+                name="provider"
+                aria-hidden="true"
+                tabindex="-1"
+                aria-describedby="provider-tooltip"
+              >
+                <option value="">Loading…</option>
+              </select>
+            </div>
 
             <label for="model-input">Model</label>
             <input id="model-input" name="model" type="text" placeholder="auto" />
@@ -64,7 +112,7 @@
             <label for="api-key-input">API Key</label>
             <input id="api-key-input" name="api_key" type="password" placeholder="env default" />
           </div>
-        </form>
+        </div>
       </section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.4.0/lib/xterm.min.js"></script>

@@ -5,6 +5,11 @@ const terminalContainer = document.getElementById("debugger-terminal");
 const chatHistory = document.getElementById("chat-history");
 const chatForm = document.getElementById("chat-form");
 const chatMessage = document.getElementById("chat-message");
+const chatConfigButton = document.getElementById("chat-config-button");
+const chatConfigPanel = document.getElementById("chat-config-panel");
+const chatConfigClose = document.getElementById("chat-config-close");
+const providerSelectTrigger = document.getElementById("provider-select-trigger");
+const providerOptionsList = document.getElementById("provider-options");
 const startSessionButton = document.getElementById("start-session");
 const dividers = document.querySelectorAll(".divider");
 const minPaneWidths = {
@@ -26,6 +31,11 @@ let lastWasCarriageReturn = false;
 let debuggerReplayBuffer = [];
 let terminalSupportsKeystream = false;
 let fallbackControls = null;
+let providerSelectTooltip = null;
+let providerSelectWrapper = null;
+let providerDropdownOpen = false;
+let providerOptionElements = [];
+const providerPlaceholderText = "Select a provider";
 
 const api = {
   async getStatus() {
@@ -106,20 +116,243 @@ function setStatus(text, ok = true) {
 
 function populateProviders(data) {
   providerSelect.innerHTML = "";
+  if (providerOptionsList) {
+    providerOptionsList.innerHTML = "";
+    providerOptionsList.hidden = true;
+  }
+  providerDropdownOpen = false;
+  providerOptionElements = [];
+  if (!providerSelectWrapper || !providerSelectTooltip) {
+    providerSelectWrapper = providerSelect.closest(".select-wrapper");
+    providerSelectTooltip = providerSelectWrapper
+      ? providerSelectWrapper.querySelector(".select-tooltip")
+      : null;
+  }
+  const previousValue = providerSelect.value || "";
   if (!data.providers || data.providers.length === 0) {
     const option = document.createElement("option");
     option.value = "";
     option.textContent = "No providers";
     providerSelect.appendChild(option);
+    if (providerSelectTrigger) {
+      providerSelectTrigger.textContent = "No providers";
+      providerSelectTrigger.disabled = true;
+    }
+    hideProviderTooltip();
     return;
   }
-  for (const provider of data.providers) {
-    const option = document.createElement("option");
-    option.value = provider.id;
-    option.textContent = provider.description
-      ? `${provider.id} — ${provider.description}`
-      : provider.id;
-    providerSelect.appendChild(option);
+
+  hideProviderTooltip();
+  if (providerSelectTrigger) {
+    providerSelectTrigger.disabled = false;
+    providerSelectTrigger.textContent = providerPlaceholderText;
+    providerSelectTrigger.setAttribute("aria-expanded", "false");
+  }
+
+  data.providers.forEach((provider, index) => {
+    const description = provider.description || "";
+
+    const selectOption = document.createElement("option");
+    selectOption.value = provider.id;
+    selectOption.textContent = provider.id;
+    selectOption.dataset.description = description;
+    providerSelect.appendChild(selectOption);
+
+    if (!providerOptionsList) {
+      return;
+    }
+
+    const optionItem = document.createElement("li");
+    optionItem.className = "select-option";
+    optionItem.setAttribute("role", "option");
+    optionItem.dataset.value = provider.id;
+    optionItem.dataset.description = description;
+    optionItem.tabIndex = -1;
+    optionItem.textContent = provider.id;
+
+    optionItem.addEventListener("mouseenter", () => showProviderTooltip(description));
+    optionItem.addEventListener("mouseleave", () => {
+      if (!providerDropdownOpen) {
+        hideProviderTooltip();
+      }
+    });
+    optionItem.addEventListener("focus", () => showProviderTooltip(description));
+    optionItem.addEventListener("blur", () => {
+      if (!providerDropdownOpen) {
+        hideProviderTooltip();
+      }
+    });
+    optionItem.addEventListener("click", () => {
+      selectProvider(provider.id);
+    });
+    optionItem.addEventListener("keydown", (event) => handleProviderOptionKeydown(event, index));
+
+    providerOptionsList.appendChild(optionItem);
+    providerOptionElements.push({ value: provider.id, element: optionItem, description });
+  });
+
+  const hasPrevious = providerOptionElements.some((item) => item.value === previousValue);
+  const initialValue = hasPrevious ? previousValue : providerOptionElements[0]?.value || "";
+  selectProvider(initialValue, { closeDropdown: false, silent: true });
+}
+
+function showProviderTooltip(description) {
+  if (!providerSelectTooltip || !providerSelectWrapper) {
+    return;
+  }
+  const text = (description || "").trim();
+  if (text) {
+    providerSelectTooltip.textContent = text;
+    providerSelectWrapper.classList.add("focused");
+  } else {
+    hideProviderTooltip();
+  }
+}
+
+function hideProviderTooltip() {
+  if (!providerSelectTooltip || !providerSelectWrapper) {
+    return;
+  }
+  providerSelectTooltip.textContent = "";
+  providerSelectWrapper.classList.remove("focused");
+}
+
+function markSelectedProvider(value) {
+  providerOptionElements.forEach(({ value: optionValue, element }) => {
+    const selected = optionValue === value;
+    element.setAttribute("aria-selected", selected ? "true" : "false");
+    element.classList.toggle("is-selected", selected);
+  });
+}
+
+function selectProvider(value, options = {}) {
+  const { closeDropdown: shouldCloseDropdown = true, silent = false } = options;
+  if (!providerSelect) {
+    return;
+  }
+  const match = providerOptionElements.find((item) => item.value === value);
+  if (!match) {
+    providerSelect.value = "";
+    if (providerSelectTrigger) {
+      providerSelectTrigger.textContent = providerPlaceholderText;
+    }
+    markSelectedProvider(null);
+    hideProviderTooltip();
+    if (shouldCloseDropdown) {
+      closeProviderDropdown({ returnFocus: true });
+    }
+    return;
+  }
+
+  providerSelect.value = match.value;
+  markSelectedProvider(match.value);
+  if (providerSelectTrigger) {
+    providerSelectTrigger.textContent = match.value;
+  }
+  if (!silent) {
+    hideProviderTooltip();
+  }
+  if (shouldCloseDropdown) {
+    closeProviderDropdown({ returnFocus: true });
+  }
+}
+
+function handleProviderOptionKeydown(event, index) {
+  if (!providerOptionElements.length) {
+    return;
+  }
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    const selected = providerOptionElements[index];
+    if (selected) {
+      selectProvider(selected.value);
+    }
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    focusProviderOptionByIndex(index + 1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    focusProviderOptionByIndex(index - 1);
+    return;
+  }
+  if (event.key === "Home") {
+    event.preventDefault();
+    focusProviderOptionByIndex(0);
+    return;
+  }
+  if (event.key === "End") {
+    event.preventDefault();
+    focusProviderOptionByIndex(providerOptionElements.length - 1);
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeProviderDropdown({ returnFocus: true });
+    return;
+  }
+  if (event.key === "Tab") {
+    closeProviderDropdown({ returnFocus: false });
+  }
+}
+
+function focusProviderOptionByIndex(index) {
+  if (!providerOptionElements.length) {
+    return;
+  }
+  const normalizedIndex = ((index % providerOptionElements.length) + providerOptionElements.length) %
+    providerOptionElements.length;
+  const option = providerOptionElements[normalizedIndex];
+  if (option) {
+    focusWithoutScroll(option.element);
+    showProviderTooltip(option.description);
+  }
+}
+
+function openProviderDropdown() {
+  if (!providerOptionsList || providerDropdownOpen || !providerOptionElements.length) {
+    return;
+  }
+  providerOptionsList.hidden = false;
+  providerDropdownOpen = true;
+  if (providerSelectTrigger) {
+    providerSelectTrigger.setAttribute("aria-expanded", "true");
+  }
+  const currentValue = providerSelect.value;
+  const match = providerOptionElements.find((item) => item.value === currentValue);
+  const targetOption = match || providerOptionElements[0];
+  if (targetOption) {
+    focusWithoutScroll(targetOption.element);
+    showProviderTooltip(targetOption.description);
+  }
+}
+
+function closeProviderDropdown(options = {}) {
+  const { returnFocus = false } = options;
+  if (!providerDropdownOpen) {
+    return;
+  }
+  if (providerOptionsList) {
+    providerOptionsList.hidden = true;
+  }
+  providerDropdownOpen = false;
+  hideProviderTooltip();
+  if (providerSelectTrigger) {
+    providerSelectTrigger.setAttribute("aria-expanded", "false");
+    if (returnFocus) {
+      focusWithoutScroll(providerSelectTrigger);
+    }
+  }
+}
+
+function toggleProviderDropdown() {
+  if (providerDropdownOpen) {
+    closeProviderDropdown({ returnFocus: true });
+  } else {
+    openProviderDropdown();
   }
 }
 
@@ -233,6 +466,82 @@ function ensureTerminal() {
   return terminal;
 }
 
+function appendChatEntry(role, text) {
+  const entry = document.createElement("div");
+  entry.className = `chat-entry ${role}`;
+  const speaker = role === "user" ? "You" : "Copilot";
+
+  const label = document.createElement("div");
+  label.className = "chat-entry-label";
+  label.textContent = speaker;
+  entry.appendChild(label);
+
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble";
+  bubble.textContent = text;
+  entry.appendChild(bubble);
+
+  chatHistory.appendChild(entry);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+function appendChatProposal(data) {
+  const entry = document.createElement("div");
+  entry.className = "chat-entry assistant proposal";
+
+  const prefix = document.createElement("div");
+  prefix.className = "chat-entry-label";
+  prefix.textContent = "Copilot";
+  entry.appendChild(prefix);
+
+  const card = document.createElement("div");
+  card.className = "chat-proposal-card";
+
+  const heading = document.createElement("div");
+  heading.className = "chat-proposal-heading";
+  heading.textContent = "Proposed debugger command";
+  card.appendChild(heading);
+
+  if (data.explanation) {
+    const explanation = document.createElement("p");
+    explanation.className = "chat-proposal-explanation";
+    explanation.textContent = data.explanation;
+    card.appendChild(explanation);
+  }
+
+  const commandBlock = document.createElement("pre");
+  commandBlock.className = "chat-proposal-command";
+  const commandLabel = data.label || "debugger";
+  commandBlock.textContent = `${commandLabel}> ${data.command}`;
+  card.appendChild(commandBlock);
+
+  const actions = document.createElement("div");
+  actions.className = "chat-proposal-actions";
+  const buttons = [
+    { label: "Approve", value: "y", friendly: "Approve (y)" },
+    { label: "Skip", value: "n", friendly: "Skip (n)" },
+    { label: "Auto-Approve", value: "a", friendly: "Auto-approve (a)" },
+  ];
+
+  buttons.forEach(({ label: btnLabel, value, friendly }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = btnLabel;
+    button.addEventListener("click", () => handleProposalAction(entry, value, friendly));
+    actions.appendChild(button);
+  });
+  card.appendChild(actions);
+
+  const status = document.createElement("div");
+  status.className = "chat-proposal-status";
+  status.textContent = "Awaiting your decision.";
+  card.appendChild(status);
+
+  entry.appendChild(card);
+  chatHistory.appendChild(entry);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
 function writeDebuggerStatus(text) {
   const term = ensureTerminal();
   if (!term) {
@@ -321,71 +630,12 @@ function handleTerminalInput(data) {
   }
 }
 
-function appendChatEntry(role, text) {
-  const entry = document.createElement("div");
-  entry.className = `chat-entry ${role}`;
-  entry.textContent = `${role === "user" ? "You" : "Assistant"}: ${text}`;
-  chatHistory.appendChild(entry);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
-}
-
-function appendChatProposal(data) {
-  const entry = document.createElement("div");
-  entry.className = "chat-entry assistant proposal";
-
-  const card = document.createElement("div");
-  card.className = "chat-proposal-card";
-
-  const heading = document.createElement("div");
-  heading.className = "chat-proposal-heading";
-  heading.textContent = "Proposed debugger command";
-  card.appendChild(heading);
-
-  if (data.explanation) {
-    const explanation = document.createElement("p");
-    explanation.className = "chat-proposal-explanation";
-    explanation.textContent = data.explanation;
-    card.appendChild(explanation);
-  }
-
-  const commandBlock = document.createElement("pre");
-  commandBlock.className = "chat-proposal-command";
-  const label = data.label || "debugger";
-  commandBlock.textContent = `${label}> ${data.command}`;
-  card.appendChild(commandBlock);
-
-  const actions = document.createElement("div");
-  actions.className = "chat-proposal-actions";
-  const buttons = [
-    { label: "Approve", value: "y", friendly: "Approve (y)" },
-    { label: "Skip", value: "n", friendly: "Skip (n)" },
-    { label: "Auto-Approve", value: "a", friendly: "Auto-approve (a)" },
-  ];
-
-  buttons.forEach(({ label: btnLabel, value, friendly }) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = btnLabel;
-    button.addEventListener("click", () => handleProposalAction(entry, value, friendly));
-    actions.appendChild(button);
-  });
-  card.appendChild(actions);
-
-  const status = document.createElement("div");
-  status.className = "chat-proposal-status";
-  status.textContent = "Awaiting your decision.";
-  card.appendChild(status);
-
-  entry.appendChild(card);
-  chatHistory.appendChild(entry);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
-}
-
 async function handleProposalAction(entry, value, friendly) {
   if (!sessionId) {
     appendChatEntry("assistant", "[chat] start a session first");
     return;
   }
+
   const status = entry.querySelector(".chat-proposal-status");
   const buttons = entry.querySelectorAll(".chat-proposal-actions button");
   buttons.forEach((button) => {
@@ -394,6 +644,7 @@ async function handleProposalAction(entry, value, friendly) {
   if (status) {
     status.textContent = "Submitting...";
   }
+
   try {
     await api.sendChat(sessionId, value);
     appendChatEntry("user", friendly);
@@ -499,6 +750,133 @@ function updateSessionControls(active) {
   startSessionButton.setAttribute("aria-pressed", active ? "true" : "false");
 }
 
+function openChatConfig() {
+  if (!chatConfigPanel) {
+    return;
+  }
+  closeProviderDropdown({ returnFocus: false });
+  chatConfigPanel.hidden = false;
+  focusWithoutScroll(chatConfigPanel);
+  if (chatConfigButton) {
+    chatConfigButton.setAttribute("aria-expanded", "true");
+  }
+}
+
+function closeChatConfig(options = {}) {
+  const { returnFocus = false } = options;
+  if (!chatConfigPanel || chatConfigPanel.hidden) {
+    return;
+  }
+  chatConfigPanel.hidden = true;
+  closeProviderDropdown({ returnFocus: false });
+  if (chatConfigButton) {
+    chatConfigButton.setAttribute("aria-expanded", "false");
+    if (returnFocus) {
+      focusWithoutScroll(chatConfigButton);
+    }
+  }
+  hideProviderTooltip();
+}
+
+function toggleChatConfig() {
+  if (!chatConfigPanel) {
+    return;
+  }
+  if (chatConfigPanel.hidden) {
+    openChatConfig();
+  } else {
+    closeChatConfig({ returnFocus: true });
+  }
+}
+
+function focusWithoutScroll(element) {
+  if (!element || typeof element.focus !== "function") {
+    return;
+  }
+  try {
+    element.focus({ preventScroll: true });
+  } catch (err) {
+    element.focus();
+  }
+}
+
+if (chatConfigButton) {
+  chatConfigButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleChatConfig();
+  });
+}
+
+if (chatConfigClose) {
+  chatConfigClose.addEventListener("click", () => closeChatConfig({ returnFocus: true }));
+}
+
+if (providerSelectTrigger) {
+  providerSelectTrigger.addEventListener("click", (event) => {
+    if (providerSelectTrigger.disabled) {
+      return;
+    }
+    event.preventDefault();
+    toggleProviderDropdown();
+  });
+
+  providerSelectTrigger.addEventListener("keydown", (event) => {
+    if (providerSelectTrigger.disabled) {
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openProviderDropdown();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      openProviderDropdown();
+      if (providerOptionElements.length) {
+        focusProviderOptionByIndex(providerOptionElements.length - 1);
+      }
+    }
+  });
+}
+
+if (providerOptionsList) {
+  providerOptionsList.addEventListener("mouseleave", () => {
+    if (providerDropdownOpen) {
+      hideProviderTooltip();
+    }
+  });
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (providerDropdownOpen) {
+    const insideWrapper = providerSelectWrapper && providerSelectWrapper.contains(target);
+    if (!insideWrapper) {
+      closeProviderDropdown({ returnFocus: false });
+    }
+  }
+  if (!chatConfigPanel || chatConfigPanel.hidden) {
+    return;
+  }
+  const clickedInsidePanel = chatConfigPanel.contains(target);
+  const clickedButton = chatConfigButton && chatConfigButton.contains(target);
+  if (clickedInsidePanel || clickedButton) {
+    return;
+  }
+  closeChatConfig({ returnFocus: false });
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (providerDropdownOpen) {
+      event.preventDefault();
+      closeProviderDropdown({ returnFocus: true });
+      return;
+    }
+    closeChatConfig({ returnFocus: true });
+  }
+});
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = chatMessage.value.trim();
@@ -561,8 +939,13 @@ startSessionButton.addEventListener("click", async () => {
   }
 
   if (!payload.api_key) {
-    window.alert("API key is required to start a session.");
-    appendChatEntry("assistant", "[chat] set an API key before starting a session");
+    window.alert(
+      "API key is required to start a session. Click the gear icon beside 'Coliot Chat' to open settings and add your key."
+    );
+    appendChatEntry(
+      "assistant",
+      "[chat] set an API key via the gear icon beside 'Coliot Chat' before starting a session"
+    );
     setStatus("api key required", false);
     startSessionButton.disabled = false;
     return;
@@ -614,9 +997,11 @@ function setupResizers() {
       const startX = event.clientX;
       const startWidth = targetPane.getBoundingClientRect().width;
       const minWidth = minPaneWidths[targetId] || 160;
+      const targetBeforeDivider = divider.previousElementSibling === targetPane;
 
       const onMove = (moveEvent) => {
-        const delta = moveEvent.clientX - startX;
+        const rawDelta = moveEvent.clientX - startX;
+        const delta = targetBeforeDivider ? rawDelta : -rawDelta;
         const nextWidth = Math.max(minWidth, startWidth + delta);
         targetPane.style.flexBasis = `${nextWidth}px`;
         targetPane.style.width = `${nextWidth}px`;
@@ -639,7 +1024,9 @@ function setupResizers() {
       const currentWidth = targetPane.getBoundingClientRect().width;
       const step = event.shiftKey ? 40 : 20;
       const delta = event.key === "ArrowLeft" ? -step : step;
-      const nextWidth = Math.max(minWidth, currentWidth + delta);
+      const targetBeforeDivider = divider.previousElementSibling === targetPane;
+      const adjustedDelta = targetBeforeDivider ? delta : -delta;
+      const nextWidth = Math.max(minWidth, currentWidth + adjustedDelta);
       targetPane.style.flexBasis = `${nextWidth}px`;
       targetPane.style.width = `${nextWidth}px`;
       event.preventDefault();
@@ -834,6 +1221,15 @@ async function bootstrap() {
     option.value = "";
     option.textContent = "providers unavailable";
     providerSelect.appendChild(option);
+    if (providerOptionsList) {
+      providerOptionsList.innerHTML = "";
+    }
+    if (providerSelectTrigger) {
+      providerSelectTrigger.textContent = "providers unavailable";
+      providerSelectTrigger.disabled = true;
+      providerSelectTrigger.setAttribute("aria-expanded", "false");
+    }
+    hideProviderTooltip();
   }
 
   try {
