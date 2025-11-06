@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -13,6 +14,10 @@ from dbgcopilot.utils.io import strip_ansi
 from dbgcopilot.backends.gdb_subprocess import GdbSubprocessBackend
 from dbgcopilot.backends.lldb_inprocess import LldbInProcessBackend
 from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
+from dbgcopilot.backends.lldb_api import LldbApiBackend
+
+
+logger = logging.getLogger(__name__)
 
 
 def _queue_factory() -> asyncio.Queue[str]:
@@ -172,16 +177,35 @@ class SessionManager:
     def _create_backend(self, debugger: str):
         if debugger == "gdb":
             backend = GdbSubprocessBackend()
-        elif debugger == "lldb":
-            try:
-                import lldb  # type: ignore
+            backend.initialize_session()
+            return backend
+        if debugger == "lldb":
+            return self._create_lldb_backend()
+        raise ValueError(f"Unsupported debugger: {debugger}")
 
+    def _create_lldb_backend(self):
+        api_error: Optional[Exception] = None
+        try:
+            backend = LldbApiBackend()
+            backend.initialize_session()
+            return backend
+        except Exception as exc:  # pragma: no cover - depends on environment
+            api_error = exc
+
+        try:
+            import lldb  # type: ignore
+
+            if getattr(lldb, "debugger", None):
                 backend = LldbInProcessBackend()
-            except Exception:
-                backend = LldbSubprocessBackend()
-        else:
-            raise ValueError(f"Unsupported debugger: {debugger}")
+                backend.initialize_session()
+                return backend
+        except Exception:
+            pass
+
+        backend = LldbSubprocessBackend()
         backend.initialize_session()
+        if api_error:
+            logger.warning("LLDB API backend unavailable, using subprocess backend: %s", api_error)
         return backend
 
     def _prompt_text(self, session: Session) -> str:

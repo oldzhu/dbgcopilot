@@ -22,6 +22,7 @@ class LldbApiBackend:
         self._dbg = None  # type: ignore
         self._interp = None  # type: ignore
         self._initialized_runtime = False
+        self.prompt = "(lldb) "
 
     def initialize_session(self) -> None:
         # If LLDB_DEBUGSERVER_PATH is not set, detect lldb full and major version
@@ -194,6 +195,8 @@ class LldbApiBackend:
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
         # Split into individual commands (newline/semicolon) but keep 'script ' intact
         raw = (cmd or "").strip()
+        if not raw:
+            return ""
         if raw.lower().startswith("script "):
             parts = [raw]
         else:
@@ -209,7 +212,7 @@ class LldbApiBackend:
             try:
                 out = self._handle_command(part)
             except Exception as e:
-                out = f"[lldb api error] {part}: {e}"
+                out = f"[lldb error] {part}: {e}"
             if out:
                 outputs.append(out)
         return "\n".join(outputs)
@@ -217,6 +220,6 @@ class LldbApiBackend:
     def __del__(self):  # pragma: no cover
         try:
             if self._dbg is not None and self._lldb is not None:
-                self._lldb.SBDebugger.Destroy(self._dbg)
+                self._lldb.SBDebugger.Destroy(self._dbg)  # type: ignore[attr-defined]
         except Exception:
             pass
