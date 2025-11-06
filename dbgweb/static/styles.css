@@ -184,7 +184,7 @@ body {
   background-color: #1e1e1e;
   display: flex;
   flex-direction: column;
-  padding: 1rem;
+  padding: 0.75rem;
   overflow: hidden;
   min-height: 0;
   font-size: 0.95rem;
@@ -200,29 +200,53 @@ body {
 #explorer-pane {
   flex: 0 0 280px;
   min-width: 180px;
+  padding-right: 0.5rem;
 }
 
 #debugger-pane {
   flex: 1 1 auto;
   min-width: 260px;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
 }
 
 #chat-pane {
   flex: 0 0 320px;
   min-width: 220px;
   position: relative;
+  padding-left: 0.5rem;
 }
 
 .divider {
-  width: 4px;
+  position: relative;
+  width: 8px;
   cursor: col-resize;
-  background-color: #2b2b2b;
-  border-left: 1px solid #1a1a1a;
-  border-right: 1px solid #1a1a1a;
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  touch-action: none;
 }
 
-.divider:focus {
-  outline: 2px solid #0e639c;
+.divider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  transition: width 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.divider:hover::before,
+.divider:active::before,
+.divider:focus::before,
+.divider:focus-visible::before {
+  width: 4px;
+  background-color: #0e639c;
+  box-shadow: 0 0 0 1px rgba(14, 99, 156, 0.35);
 }
 
 .session-form {
@@ -370,6 +394,10 @@ body {
   word-break: break-word;
 }
 
+.terminal-fallback-output pre span {
+  white-space: inherit;
+}
+
 .terminal-fallback-input-line {
   display: flex;
   align-items: center;
@@ -390,6 +418,146 @@ body {
 .terminal-fallback-prompt {
   color: #9cdcfe;
   white-space: pre;
+}
+
+.ansi-bold {
+  font-weight: 600;
+}
+
+.ansi-italic {
+  font-style: italic;
+}
+
+.ansi-underline {
+  text-decoration: underline;
+}
+
+.ansi-fg-30 {
+  color: #000000;
+}
+
+.ansi-fg-31 {
+  color: #cd3131;
+}
+
+.ansi-fg-32 {
+  color: #0dbc79;
+}
+
+.ansi-fg-33 {
+  color: #e5e510;
+}
+
+.ansi-fg-34 {
+  color: #2472c8;
+}
+
+.ansi-fg-35 {
+  color: #bc3fbc;
+}
+
+.ansi-fg-36 {
+  color: #11a8cd;
+}
+
+.ansi-fg-37 {
+  color: #e5e5e5;
+}
+
+.ansi-fg-90 {
+  color: #666666;
+}
+
+.ansi-fg-91 {
+  color: #f14c4c;
+}
+
+.ansi-fg-92 {
+  color: #23d18b;
+}
+
+.ansi-fg-93 {
+  color: #f5f543;
+}
+
+.ansi-fg-94 {
+  color: #3b8eea;
+}
+
+.ansi-fg-95 {
+  color: #d670d6;
+}
+
+.ansi-fg-96 {
+  color: #29b8db;
+}
+
+.ansi-fg-97 {
+  color: #f2f2f2;
+}
+
+.ansi-bg-40 {
+  background-color: #000000;
+}
+
+.ansi-bg-41 {
+  background-color: #cd3131;
+}
+
+.ansi-bg-42 {
+  background-color: #0dbc79;
+}
+
+.ansi-bg-43 {
+  background-color: #e5e510;
+}
+
+.ansi-bg-44 {
+  background-color: #2472c8;
+}
+
+.ansi-bg-45 {
+  background-color: #bc3fbc;
+}
+
+.ansi-bg-46 {
+  background-color: #11a8cd;
+}
+
+.ansi-bg-47 {
+  background-color: #e5e5e5;
+}
+
+.ansi-bg-100 {
+  background-color: #666666;
+}
+
+.ansi-bg-101 {
+  background-color: #f14c4c;
+}
+
+.ansi-bg-102 {
+  background-color: #23d18b;
+}
+
+.ansi-bg-103 {
+  background-color: #f5f543;
+}
+
+.ansi-bg-104 {
+  background-color: #3b8eea;
+}
+
+.ansi-bg-105 {
+  background-color: #d670d6;
+}
+
+.ansi-bg-106 {
+  background-color: #29b8db;
+}
+
+.ansi-bg-107 {
+  background-color: #f2f2f2;
 }
 
 .terminal-fallback-input {

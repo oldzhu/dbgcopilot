@@ -5,6 +5,7 @@ import asyncio
 import uuid
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -216,34 +217,44 @@ class SessionManager:
         return prompt
 
     def _format_debugger_output(self, session: Session, text: Optional[str]) -> str:
-        clean = strip_ansi((text or "").rstrip("\r"))
-        if clean:
-            lines = clean.splitlines()
+        raw = (text or "").rstrip("\r")
+        if raw:
+            lines = raw.splitlines()
             if lines:
                 first = lines[0]
-                lowered = first.lower()
-                if lowered.startswith("gdb> "):
-                    stripped = first[5:].lstrip()
-                    if stripped:
-                        lines[0] = stripped
+                prompt_variants: list[str] = []
+                backend_prompt = getattr(session.debugger_backend, "prompt", "") or ""
+                if backend_prompt:
+                    prompt_variants.append(strip_ansi(backend_prompt).strip().lower())
+                prompt_variants.extend(["(gdb)", "gdb>", "(lldb)", "lldb>"])
+                ansi_prefix = r"(?:\x1b\[[0-9;]*m)*"
+                prompt_patterns: list[re.Pattern[str]] = []
+                for prefix in prompt_variants:
+                    if not prefix:
+                        continue
+                    prompt_patterns.append(
+                        re.compile(rf"^{ansi_prefix}{re.escape(prefix)}\s*", re.IGNORECASE)
+                    )
+                for pattern in prompt_patterns:
+                    match = pattern.match(first)
+                    if not match:
+                        continue
+                    remainder = first[match.end():].lstrip()
+                    if remainder:
+                        lines[0] = remainder
                     else:
                         lines = lines[1:]
-                elif lowered.startswith("lldb> "):
-                    stripped = first[6:].lstrip()
-                    if stripped:
-                        lines[0] = stripped
-                    else:
-                        lines = lines[1:]
-                clean = "\n".join(lines)
+                    break
+            raw = "\n".join(lines)
         prompt = self._prompt_text(session)
         if prompt:
-            if clean:
-                if not clean.endswith("\n"):
-                    clean += "\n"
-                clean += prompt
+            if raw:
+                if not raw.endswith("\n"):
+                    raw += "\n"
+                raw += prompt
             else:
-                clean = prompt
-        return clean
+                raw = prompt
+        return raw
 
 
 session_manager = SessionManager()

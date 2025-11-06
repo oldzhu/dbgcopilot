@@ -1059,6 +1059,249 @@ async function dispatchDebuggerCommand(command) {
   }
 }
 
+const ANSI_CODE_PATTERN = /\x1b\[([0-9;]*)m/g;
+const ANSI_STRIP_PATTERN = /\x1b\[[0-9;]*m/g;
+
+const ANSI_FG_MAP = {
+  30: "#000000",
+  31: "#cd3131",
+  32: "#0dbc79",
+  33: "#e5e510",
+  34: "#2472c8",
+  35: "#bc3fbc",
+  36: "#11a8cd",
+  37: "#e5e5e5",
+  90: "#666666",
+  91: "#f14c4c",
+  92: "#23d18b",
+  93: "#f5f543",
+  94: "#3b8eea",
+  95: "#d670d6",
+  96: "#29b8db",
+  97: "#f2f2f2",
+};
+
+const ANSI_BG_MAP = {
+  40: "#000000",
+  41: "#cd3131",
+  42: "#0dbc79",
+  43: "#e5e510",
+  44: "#2472c8",
+  45: "#bc3fbc",
+  46: "#11a8cd",
+  47: "#e5e5e5",
+  100: "#666666",
+  101: "#f14c4c",
+  102: "#23d18b",
+  103: "#f5f543",
+  104: "#3b8eea",
+  105: "#d670d6",
+  106: "#29b8db",
+  107: "#f2f2f2",
+};
+
+const DEFAULT_FG_COLOR = "#d4d4d4";
+const DEFAULT_BG_COLOR = "#1b1b1b";
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function stripAnsiCodes(text) {
+  return (text || "").replace(ANSI_STRIP_PATTERN, "");
+}
+
+function createAnsiState() {
+  return {
+    bold: false,
+    italic: false,
+    underline: false,
+    inverse: false,
+    fg: null,
+    bg: null,
+    fgCss: null,
+    bgCss: null,
+  };
+}
+
+function applyAnsiCodes(state, codes) {
+  if (!codes.length) {
+    codes = [0];
+  }
+  for (let i = 0; i < codes.length; i += 1) {
+    const code = codes[i];
+    if (!Number.isFinite(code)) {
+      continue;
+    }
+    if (code === 0) {
+      Object.assign(state, createAnsiState());
+      continue;
+    }
+    switch (code) {
+      case 1:
+        state.bold = true;
+        break;
+      case 3:
+        state.italic = true;
+        break;
+      case 4:
+        state.underline = true;
+        break;
+      case 7:
+        state.inverse = true;
+        break;
+      case 21:
+      case 22:
+        state.bold = false;
+        break;
+      case 23:
+        state.italic = false;
+        break;
+      case 24:
+        state.underline = false;
+        break;
+      case 27:
+        state.inverse = false;
+        break;
+      case 39:
+        state.fg = null;
+        state.fgCss = null;
+        break;
+      case 49:
+        state.bg = null;
+        state.bgCss = null;
+        break;
+      default:
+        if (code >= 30 && code <= 37) {
+          state.fg = code;
+          state.fgCss = null;
+        } else if (code >= 90 && code <= 97) {
+          state.fg = code;
+          state.fgCss = null;
+        } else if (code >= 40 && code <= 47) {
+          state.bg = code;
+          state.bgCss = null;
+        } else if (code >= 100 && code <= 107) {
+          state.bg = code;
+          state.bgCss = null;
+        }
+        break;
+    }
+  }
+}
+
+function buildAnsiAttributes(state) {
+  const classes = [];
+  const styles = [];
+  if (!state) {
+    return { classes, styleText: "" };
+  }
+  if (state.bold) {
+    classes.push("ansi-bold");
+  }
+  if (state.italic) {
+    classes.push("ansi-italic");
+  }
+  if (state.underline) {
+    classes.push("ansi-underline");
+  }
+
+  let fg = state.fg;
+  let bg = state.bg;
+  let fgCss = state.fgCss;
+  let bgCss = state.bgCss;
+
+  if (state.inverse) {
+    const tmpFg = fg;
+    const tmpBg = bg;
+    const tmpFgCss = fgCss;
+    const tmpBgCss = bgCss;
+    fg = tmpBg;
+    bg = tmpFg;
+    fgCss = tmpBgCss;
+    bgCss = tmpFgCss;
+    if (!fg && !fgCss) {
+      fgCss = DEFAULT_BG_COLOR;
+    }
+    if (!bg && !bgCss) {
+      bgCss = DEFAULT_FG_COLOR;
+    }
+  }
+
+  if (fgCss) {
+    styles.push(`color: ${fgCss}`);
+  } else if (typeof fg === "number" && ANSI_FG_MAP[fg]) {
+    classes.push(`ansi-fg-${fg}`);
+  }
+
+  if (bgCss) {
+    styles.push(`background-color: ${bgCss}`);
+  } else if (typeof bg === "number" && ANSI_BG_MAP[bg]) {
+    classes.push(`ansi-bg-${bg}`);
+  }
+
+  return {
+    classes,
+    styleText: styles.join("; "),
+  };
+}
+
+function wrapAnsiChunk(chunk, state) {
+  if (!chunk) {
+    return "";
+  }
+  const escaped = escapeHtml(chunk);
+  const { classes, styleText } = buildAnsiAttributes(state);
+  if (!classes.length && !styleText) {
+    return escaped;
+  }
+  const classAttr = classes.length ? ` class="${classes.join(" ")}"` : "";
+  const styleAttr = styleText ? ` style="${styleText}"` : "";
+  return `<span${classAttr}${styleAttr}>${escaped}</span>`;
+}
+
+function ansiToHtml(text) {
+  const input = text ?? "";
+  if (!input) {
+    return "";
+  }
+  ANSI_CODE_PATTERN.lastIndex = 0;
+  const state = createAnsiState();
+  let result = "";
+  let lastIndex = 0;
+  let match;
+  while ((match = ANSI_CODE_PATTERN.exec(input)) !== null) {
+    if (match.index > lastIndex) {
+      result += wrapAnsiChunk(input.slice(lastIndex, match.index), state);
+    }
+    const codes = (match[1] || "0")
+      .split(";")
+      .map((part) => Number.parseInt(part, 10))
+      .filter((n) => !Number.isNaN(n));
+    applyAnsiCodes(state, codes);
+    lastIndex = ANSI_CODE_PATTERN.lastIndex;
+  }
+  if (lastIndex < input.length) {
+    result += wrapAnsiChunk(input.slice(lastIndex), state);
+  }
+  return result;
+}
+
+function setAnsiContent(element, text) {
+  if (!element) {
+    return;
+  }
+  const html = ansiToHtml(text);
+  element.innerHTML = html;
+  const plain = stripAnsiCodes(text ?? "");
+  element.setAttribute("data-plain-text", plain);
+}
+
 function createFallbackTerminal() {
   const container = terminalContainer;
   if (!container) {
@@ -1114,20 +1357,30 @@ function createFallbackTerminal() {
 
   function appendLine(text) {
     const block = document.createElement("pre");
-    block.textContent = text;
+    const raw = text ?? "";
+    const html = ansiToHtml(raw);
+    block.innerHTML = html || "&nbsp;";
+    block.setAttribute("data-plain-text", stripAnsiCodes(raw));
     output.appendChild(block);
     output.scrollTop = output.scrollHeight;
   }
 
   function setPrompt(text) {
-    controls.currentPrompt = text;
-    if (text) {
-      controls.lastPrompt = text;
+    const raw = text ?? "";
+    controls.currentPrompt = raw;
+    if (raw) {
+      controls.lastPrompt = raw;
       input.dataset.placeholder = "";
     } else {
       input.dataset.placeholder = "waiting for debugger...";
     }
-    prompt.textContent = text;
+    setAnsiContent(prompt, raw);
+    const plain = stripAnsiCodes(raw);
+    if (plain) {
+      prompt.setAttribute("aria-label", plain);
+    } else {
+      prompt.removeAttribute("aria-label");
+    }
   }
 
   async function submitCommand(command) {
