@@ -5,8 +5,9 @@ FROM mcr.microsoft.com/devcontainers/cpp:ubuntu-24.04
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1
 
+ENV GOROOT=/usr/local/go
 ENV GOPATH=/opt/go
-ENV PATH="${GOPATH}/bin:${PATH}"
+ENV PATH="${GOROOT}/bin:${GOPATH}/bin:${PATH}"
 
 # Note: cpp image already contains build-essential, gcc/g++, cmake, ninja, clang, gdb.
 # lldb may not be present; we will add it later once network issues are resolved.
@@ -16,11 +17,15 @@ WORKDIR /workspace
 # Base tools; install pytest/pip/venv now. We'll install a newer LLDB below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pytest python3-pip python3-setuptools python3-venv gnupg wget ca-certificates \
-    golang-go git make pkg-config \
+    git make pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install latest Delve from upstream
-RUN mkdir -p ${GOPATH} \
+# Install Go toolchain manually (apt pkg unavailable) and Delve debugger
+RUN wget -q -O /tmp/go.tar.gz https://go.dev/dl/go1.25.4.linux-amd64.tar.gz \
+    && rm -rf /usr/local/go \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm -f /tmp/go.tar.gz \
+    && mkdir -p ${GOPATH} \
     && go install github.com/go-delve/delve/cmd/dlv@latest
 
 # Install latest radare2 from upstream
