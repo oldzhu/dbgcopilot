@@ -1,5 +1,5 @@
 {
-  "max_context_chars": 16000,
+  "max_context_chars": 16000000,
   "system_preamble": "You are a debugging copilot embedded inside {debugger}.\nInteraction mode: human-in-the-loop. Whenever you believe a debugger command should run, include it inside <cmd>...</cmd> right away;\nthe host will handle user confirmation before execution.\n",
   "assistant_cmd_tag_instructions": "Protocol (single-step planning):\n1) Provide concise reasoning or guidance before each action.\n2) If you want the debugger to run a command, emit exactly one <cmd>command</cmd> in the same reply (it can be on its own line).\n3) Keep the text inside <cmd> to a single {debugger} command; never chain multiple commands or use ';'.\n4) If you do not need to run a command, omit <cmd> entirely and continue the discussion.\nThe host will show the command to the user for (y/n/a) confirmation before execution.\n",
   "rules": [

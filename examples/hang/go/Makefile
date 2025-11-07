@@ -1,5 +1,4 @@
-CC ?= gcc
-CFLAGS ?= -g -O0 -Wall -Wextra -pthread
+GO ?= go
 BINDIR ?= ../../bin
 TARGET := $(BINDIR)/hang
 
@@ -8,8 +7,8 @@ all: $(TARGET)
 $(BINDIR):
 	mkdir -p $(BINDIR)
 
-$(TARGET): hang.c | $(BINDIR)
-	$(CC) $(CFLAGS) -o $@ $<
+$(TARGET): hang.go go.mod | $(BINDIR)
+	$(GO) build -o $@ .
 
 clean:
 	rm -f $(TARGET)
