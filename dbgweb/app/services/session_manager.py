@@ -52,7 +52,7 @@ class SessionManager:
     ) -> tuple[Session, list[str]]:
         async with self._lock:
             session_id = uuid.uuid4().hex[:8]
-            backend = self._create_backend(debugger)
+            backend = self._create_backend(debugger, program=program, corefile=corefile)
             state = SessionState(session_id=session_id)
             state.provider_name = provider
             state.model_override = model
@@ -66,6 +66,9 @@ class SessionManager:
             if auto_approve:
                 state.auto_accept_commands = True
                 state.config["auto_accept_commands"] = "true"
+            backend_name = getattr(backend, "name", "")
+            if program and backend_name in {"delve", "radare2"}:
+                state.config["program"] = program
             orchestrator = CopilotOrchestrator(backend, state)
             session = Session(
                 session_id=session_id,
@@ -97,17 +100,19 @@ class SessionManager:
             self.sessions[session_id] = session
             initial_messages: list[str] = []
             if program:
-                init_output = await asyncio.to_thread(backend.run_command, f"file {program}")
-                formatted = self._format_debugger_output(session, init_output)
-                if formatted:
-                    initial_messages.append(formatted)
-                    await session.debugger_queue.put(formatted)
+                init_output = await asyncio.to_thread(self._load_program_for_backend, session, program)
+                if init_output:
+                    formatted = self._format_debugger_output(session, init_output)
+                    if formatted:
+                        initial_messages.append(formatted)
+                        await session.debugger_queue.put(formatted)
             if corefile:
-                init_output = await asyncio.to_thread(backend.run_command, f"core-file {corefile}")
-                formatted = self._format_debugger_output(session, init_output)
-                if formatted:
-                    initial_messages.append(formatted)
-                    await session.debugger_queue.put(formatted)
+                init_output = await asyncio.to_thread(self._load_corefile_for_backend, session, corefile)
+                if init_output:
+                    formatted = self._format_debugger_output(session, init_output)
+                    if formatted:
+                        initial_messages.append(formatted)
+                        await session.debugger_queue.put(formatted)
             if not program and not corefile:
                 prompt = self._prompt_text(session)
                 if prompt:
@@ -186,13 +191,29 @@ class SessionManager:
                 await session.debugger_queue.put(formatted)
         return clean_answer
 
-    def _create_backend(self, debugger: str):
+    def _create_backend(self, debugger: str, program: Optional[str], corefile: Optional[str]):
         if debugger == "gdb":
             backend = GdbSubprocessBackend()
             backend.initialize_session()
             return backend
         if debugger == "lldb":
             return self._create_lldb_backend()
+        if debugger == "delve":
+            if not program:
+                raise ValueError("Delve requires a binary path. Provide one via the program field.")
+            from dbgcopilot.backends.delve_subprocess import DelveSubprocessBackend
+
+            backend = DelveSubprocessBackend(program=program)
+            backend.initialize_session()
+            return backend
+        if debugger == "radare2":
+            if not program:
+                raise ValueError("Radare2 requires a binary path. Provide one via the program field.")
+            from dbgcopilot.backends.radare2_subprocess import Radare2SubprocessBackend
+
+            backend = Radare2SubprocessBackend(program=program)
+            backend.initialize_session()
+            return backend
         raise ValueError(f"Unsupported debugger: {debugger}")
 
     def _create_lldb_backend(self):
@@ -219,6 +240,28 @@ class SessionManager:
         if api_error:
             logger.warning("LLDB API backend unavailable, using subprocess backend: %s", api_error)
         return backend
+
+    def _load_program_for_backend(self, session: Session, program: str) -> Optional[str]:
+        backend = session.debugger_backend
+        name = getattr(backend, "name", "").lower()
+        if name == "gdb":
+            return backend.run_command(f"file {program}")
+        if name == "lldb":
+            return backend.run_command(f"file {program}")
+        if name == "delve":
+            return getattr(backend, "startup_output", "")
+        if name == "radare2":
+            return getattr(backend, "startup_output", "")
+        return None
+
+    def _load_corefile_for_backend(self, session: Session, corefile: str) -> Optional[str]:
+        backend = session.debugger_backend
+        name = getattr(backend, "name", "").lower()
+        if name == "gdb":
+            return backend.run_command(f"core-file {corefile}")
+        if name == "lldb":
+            return backend.run_command(f"target create -c {corefile}")
+        return None
 
     def _prompt_text(self, session: Session) -> str:
         prompt = getattr(session.debugger_backend, "prompt", "") or ""

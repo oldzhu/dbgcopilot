@@ -60,6 +60,8 @@ def _print_help() -> str:
             "  /help                      Show this help",
             "  /use gdb                   Select GDB (subprocess backend)",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
+            "  /use delve                 Select Delve for Go binaries",
+            "  /use radare2              Select radare2 for binary analysis",
             "  /colors on|off             Toggle colored output in REPL and debugger (LLDB/GDB)",
             "  /new                       Start a new copilot session",
             "  /chatlog                   Show chat transcript",
@@ -112,6 +114,62 @@ def _select_gdb() -> str:
     ORCH = CopilotOrchestrator(BACKEND, s)
     _install_output_sink(s)
     return "Using GDB (subprocess backend)."
+
+
+def _select_delve() -> str:
+    global BACKEND, ORCH
+    s = _ensure_session()
+    try:
+        from dbgcopilot.backends.delve_subprocess import DelveSubprocessBackend
+    except Exception as e:  # pragma: no cover - import guards runtime dependency
+        return f"Failed to load Delve backend: {e}"
+
+    path = input("Enter path to Go binary for Delve: ").strip()
+    if not path:
+        return "Delve requires a binary path; selection cancelled."
+
+    try:
+        BACKEND = DelveSubprocessBackend(program=path)
+        BACKEND.initialize_session()
+    except Exception as e:
+        BACKEND = None
+        return f"Failed to start delve: {e}"
+
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    _install_output_sink(s)
+    s.config["program"] = path
+    banner = getattr(BACKEND, "startup_output", "")
+    if banner:
+        _echo(banner)
+    return f"Using Delve (dlv exec {path})."
+
+
+def _select_radare2() -> str:
+    global BACKEND, ORCH
+    s = _ensure_session()
+    try:
+        from dbgcopilot.backends.radare2_subprocess import Radare2SubprocessBackend
+    except Exception as e:  # pragma: no cover - import guards runtime dependency
+        return f"Failed to load radare2 backend: {e}"
+
+    path = input("Enter path to binary for radare2: ").strip()
+    if not path:
+        return "radare2 requires a binary path; selection cancelled."
+
+    try:
+        BACKEND = Radare2SubprocessBackend(program=path)
+        BACKEND.initialize_session()
+    except Exception as e:
+        BACKEND = None
+        return f"Failed to start radare2: {e}"
+
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    _install_output_sink(s)
+    s.config["program"] = path
+    banner = getattr(BACKEND, "startup_output", "")
+    if banner:
+        _echo(banner)
+    return f"Using radare2 (-q {path})."
 
 
 def _handle_llm(cmd: str) -> str:
@@ -592,8 +650,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                     _echo(_select_gdb())
                 elif choice == "lldb":
                     _echo(_select_lldb())
+                elif choice == "delve":
+                    _echo(_select_delve())
+                elif choice == "radare2":
+                    _echo(_select_radare2())
                 else:
-                    _echo("Supported: /use gdb | /use lldb")
+                    _echo("Supported: /use gdb | /use lldb | /use delve | /use radare2")
                 continue
             if verb == "/new":
                 sid = str(uuid.uuid4())[:8]

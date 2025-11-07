@@ -5,6 +5,9 @@ FROM mcr.microsoft.com/devcontainers/cpp:ubuntu-24.04
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1
 
+ENV GOPATH=/opt/go
+ENV PATH="${GOPATH}/bin:${PATH}"
+
 # Note: cpp image already contains build-essential, gcc/g++, cmake, ninja, clang, gdb.
 # lldb may not be present; we will add it later once network issues are resolved.
 
@@ -13,7 +16,17 @@ WORKDIR /workspace
 # Base tools; install pytest/pip/venv now. We'll install a newer LLDB below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pytest python3-pip python3-setuptools python3-venv gnupg wget ca-certificates \
+    golang-go git make pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
+# Install latest Delve from upstream
+RUN mkdir -p ${GOPATH} \
+    && go install github.com/go-delve/delve/cmd/dlv@latest
+
+# Install latest radare2 from upstream
+RUN git clone --depth=1 https://github.com/radareorg/radare2.git /opt/radare2 \
+    && /opt/radare2/sys/install.sh \
+    && rm -rf /opt/radare2
 
 # Install LLVM/LLDB 19 from apt.llvm.org (Ubuntu 24.04 = noble)
 # Ref: https://apt.llvm.org/

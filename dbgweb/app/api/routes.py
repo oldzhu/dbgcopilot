@@ -45,15 +45,18 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
     api_key = payload.get("api_key")
     auto_approve = bool(payload.get("auto_approve"))
 
-    session, initial_messages = await session_manager.create_session(
-        debugger=required,
-        provider=provider,
-        model=model,
-        api_key=api_key,
-        program=program,
-        corefile=corefile,
-        auto_approve=auto_approve,
-    )
+    try:
+        session, initial_messages = await session_manager.create_session(
+            debugger=required,
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            program=program,
+            corefile=corefile,
+            auto_approve=auto_approve,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse({"session_id": session.session_id, "initial_messages": initial_messages})
 
 

@@ -988,6 +988,16 @@ startSessionButton.addEventListener("click", async () => {
     auto_approve: desiredAutoApprove,
   };
 
+  if (["delve", "radare2"].includes(payload.debugger) && !payload.program) {
+    appendChatEntry(
+      "assistant",
+      `[chat] ${payload.debugger} requires the program field to point to the binary you want to debug.`
+    );
+    setStatus(`${payload.debugger}: program path required`, false);
+    startSessionButton.disabled = false;
+    return;
+  }
+
   if (!payload.provider) {
     appendChatEntry("assistant", "[chat] select an LLM provider first");
     startSessionButton.disabled = false;
