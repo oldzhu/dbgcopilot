@@ -1,0 +1,109 @@
+{
+  "providers": {
+    "mock-local": {
+      "kind": "mock",
+      "description": "Local deterministic mock provider",
+      "capabilities": []
+    },
+    "openrouter": {
+      "kind": "openrouter",
+      "description": "OpenRouter API provider (requires OPENROUTER_API_KEY)",
+      "default_model": "openai/gpt-4o-mini",
+      "capabilities": ["temperature", "max_tokens", "top_p", "presence_penalty", "frequency_penalty", "stop_sequences", "thinking"],
+      "param_aliases": {
+        "enable_thinking": "thinking.enabled",
+        "thinking_budget_tokens": "thinking.max_tokens"
+      }
+    },
+    "openai-http": {
+      "kind": "openai-compatible",
+      "description": "Generic OpenAI-compatible endpoint (configure base URL/API key/model)",
+      "base_url": "",
+      "path": "/v1/chat/completions",
+      "default_model": "gpt-4o-mini",
+      "capabilities": ["temperature", "max_tokens", "top_p", "presence_penalty", "frequency_penalty", "stop_sequences"]
+    },
+    "minimax": {
+      "kind": "openai-compatible",
+      "description": "MiniMax OpenAI-compatible API",
+      "base_url": "https://api.minimax.chat",
+      "path": "/v1/chat/completions",
+      "default_model": "MiniMax-M2",
+      "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences"]
+    },
+    "ollama": {
+      "kind": "openai-compatible",
+      "description": "Local Ollama via OpenAI-compatible /v1/chat/completions",
+      "base_url": "http://localhost:11434",
+      "path": "/v1/chat/completions",
+      "default_model": "llama3.1",
+      "capabilities": ["temperature", "max_tokens", "top_p", "top_k", "stop_sequences"],
+      "param_aliases": {
+        "mirostat": "extras.mirostat"
+      }
+    },
+    "deepseek": {
+      "kind": "openai-compatible",
+      "description": "DeepSeek OpenAI-compatible API",
+      "base_url": "https://api.deepseek.com",
+      "path": "/v1/chat/completions",
+      "default_model": "deepseek-chat",
+      "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences", "thinking"],
+      "param_aliases": {
+        "enable_thinking": "thinking.enabled"
+      }
+    },
+    "qwen": {
+      "kind": "openai-compatible",
+      "description": "Qwen via DashScope OpenAI-compatible API",
+      "base_url": "https://dashscope.aliyuncs.com",
+      "path": "/compatible-mode/v1/chat/completions",
+      "default_model": "qwen-turbo",
+      "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences"]
+    },
+    "kimi": {
+      "kind": "openai-compatible",
+      "description": "Kimi (Moonshot) OpenAI-compatible API",
+      "base_url": "https://api.moonshot.cn",
+      "path": "/v1/chat/completions",
+      "default_model": "moonshot-v1-8k",
+      "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences", "web_search"],
+      "param_aliases": {
+        "web_search": "extras.enable_web_search"
+      }
+    },
+    "glm": {
+      "kind": "openai-compatible",
+      "description": "Zhipu GLM OpenAI-compatible API",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "path": "/chat/completions",
+      "default_model": "glm-4",
+      "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences", "web_search"],
+      "param_aliases": {
+        "web_search": "extras.enable_web_search"
+      }
+    },
+    "llama-cpp": {
+      "kind": "openai-compatible",
+      "description": "llama.cpp local server (OpenAI-compatible)",
+      "base_url": "http://localhost:8080",
+      "path": "/v1/chat/completions",
+      "default_model": "llama",
+      "capabilities": ["temperature", "max_tokens", "top_p", "top_k", "stop_sequences", "repeat_penalty", "mirostat"],
+      "param_aliases": {
+        "repeat_penalty": "extras.repeat_penalty"
+      }
+    },
+    "modelscope": {
+      "kind": "openai-compatible",
+      "description": "ModelScope OpenAI-compatible inference API",
+      "base_url": "https://api-inference.modelscope.cn",
+      "path": "/v1/chat/completions",
+      "default_model": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+      "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences", "thinking"],
+      "param_aliases": {
+        "thinking_budget_tokens": "thinking.max_tokens"
+      }
+    }
+  }
+}

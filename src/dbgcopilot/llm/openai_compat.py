@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownParameterType=false
+
 """OpenAI-compatible provider integration (configurable).
 
 This module implements a minimal HTTP client for any endpoint that follows the
@@ -25,28 +27,36 @@ import json
 import re
 from typing import Optional, Dict, Any, Tuple
 
+from . import params as param_utils
+
 
 def _slug_to_env_prefix(name: str) -> str:
     # Convert provider name into ENV prefix: 'openai-http' -> 'OPENAI_HTTP'
     return re.sub(r"[^A-Za-z0-9]+", "_", name).upper()
 
 
-def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
+def _get_cfg(
+    name: str,
+    session_config: Optional[dict[str, Any]],
+    defaults: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     sc = session_config or {}
     key = name.replace("-", "_")  # session keys use underscores
     prefix = _slug_to_env_prefix(name)
+    defaults = defaults or {}
 
-    def pick(sc_key: str, env_key: str, default: Optional[str] = None) -> Optional[str]:
+    def pick(sc_key: str, env_key: str, default: Any = None) -> Any:
         if sc_key in sc and sc.get(sc_key):
             return sc.get(sc_key)
         if env_key in os.environ and os.environ.get(env_key):
             return os.environ.get(env_key)
         return default
 
-    base_url = pick(f"{key}_base_url", f"{prefix}_BASE_URL", None)
+    base_url = pick(f"{key}_base_url", f"{prefix}_BASE_URL", None) or defaults.get("base_url")
     api_key = pick(f"{key}_api_key", f"{prefix}_API_KEY", None)
     model = pick(f"{key}_model", f"{prefix}_MODEL", None)
-    path = pick(f"{key}_path", f"{prefix}_PATH", "/v1/chat/completions")
+    path_default = defaults.get("path")
+    path = pick(f"{key}_path", f"{prefix}_PATH", path_default or "/v1/chat/completions")
     path_override = f"{key}_path" in sc or f"{prefix}_PATH" in os.environ
     headers_raw = pick(f"{key}_headers", f"{prefix}_HEADERS", None)
 
@@ -60,6 +70,11 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
         except Exception:
             # ignore malformed headers
             headers = {}
+    default_headers = defaults.get("headers")
+    if isinstance(default_headers, dict):
+        merged = dict(default_headers)
+        merged.update(headers)
+        headers = merged
 
     # Apply built-in defaults for known names
     if name == "ollama":
@@ -96,6 +111,13 @@ def _get_cfg(name: str, session_config: Optional[dict]) -> Dict[str, Any]:
         # ModelScope OpenAI-compatible inference endpoint
         base_url = base_url or "https://api-inference.modelscope.cn"
         model = model or "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+
+    if not model:
+        model = defaults.get("default_model") or defaults.get("model")
+    if not base_url:
+        base_url = defaults.get("base_url")
+    if not path:
+        path = defaults.get("path") or "/v1/chat/completions"
 
     return {
         "base_url": base_url,
@@ -142,14 +164,16 @@ def _extract_usage(data: Dict[str, Any], provider_name: str, model: str) -> Dict
 def _ask_openai_compat(
     prompt: str,
     name: str,
-    session_config: Optional[dict] = None,
+    session_config: Optional[dict[str, Any]] = None,
+    defaults: Optional[Dict[str, Any]] = None,
+    meta: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     try:
         import requests
     except Exception as e:
         raise RuntimeError("requests library is required for OpenAI-compatible providers") from e
 
-    cfg = _get_cfg(name, session_config)
+    cfg = _get_cfg(name, session_config, defaults=defaults)
     base_url = (cfg.get("base_url") or "").rstrip("/")
     api_key = cfg.get("api_key")
     model = cfg.get("model") or "gpt-4o-mini"
@@ -164,12 +188,37 @@ def _ask_openai_compat(
         raise RuntimeError(f"{name}: base_url not configured. Set {name.replace('-', '_')}_base_url in session config or { _slug_to_env_prefix(name) }_BASE_URL in env.")
 
     url = f"{base_url}{path if path.startswith('/') else '/' + path}"
-    body = {
+    meta = meta or {}
+    default_temperature = meta.get("default_temperature")
+    if default_temperature is None:
+        default_temperature = 0.0
+    default_max_tokens = meta.get("default_max_tokens")
+    if default_max_tokens is None:
+        default_max_tokens = 512
+
+    body: Dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 512,
-        "temperature": 0.2,
     }
+    if default_max_tokens is not None:
+        try:
+            body["max_tokens"] = int(default_max_tokens)
+        except Exception:
+            body["max_tokens"] = 512
+    if default_temperature is not None:
+        try:
+            body["temperature"] = float(default_temperature)
+        except Exception:
+            body["temperature"] = 0.0
+    else:
+        body["temperature"] = 0.0
+
+    default_params = meta.get("default_params")
+    if isinstance(default_params, dict):
+        body = param_utils.apply_params(body, default_params, meta, assume_canonical=False)
+
+    session_params = param_utils.get_session_params(session_config or {}, name)
+    body = param_utils.apply_params(body, session_params, meta, assume_canonical=True)
 
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=20)
@@ -205,15 +254,28 @@ def _ask_openai_compat(
     return content, usage
 
 
-def create_provider(session_config: dict | None = None, name: str = "openai-http"):
+def create_provider(
+    session_config: dict[str, Any] | None = None,
+    name: str = "openai-http",
+    defaults: Optional[Dict[str, Any]] = None,
+    meta: Optional[Dict[str, Any]] = None,
+):
     """Return an ask(prompt) function bound to session_config and provider name.
 
     Examples:
     - name='openai-http': use {openai_http_*} keys or OPENAI_HTTP_* env vars
     - name='ollama': use {ollama_*} keys or OLLAMA_* env vars (defaults base_url and model)
     """
+    meta_payload = dict(meta or {})
+
     def ask(prompt: str) -> str:
-        content, usage = _ask_openai_compat(prompt, name=name, session_config=session_config)
+        content, usage = _ask_openai_compat(
+            prompt,
+            name=name,
+            session_config=session_config,
+            defaults=defaults,
+            meta=meta_payload,
+        )
         setattr(ask, "last_usage", usage)
         return content
 
@@ -221,7 +283,11 @@ def create_provider(session_config: dict | None = None, name: str = "openai-http
     return ask
 
 
-def list_models(session_config: dict | None = None, name: str = "openai-http") -> list[str]:
+def list_models(
+    session_config: dict[str, Any] | None = None,
+    name: str = "openai-http",
+    defaults: Optional[Dict[str, Any]] = None,
+) -> list[str]:
     """Attempt to list models for an OpenAI-compatible provider.
 
     Strategy:
@@ -234,7 +300,7 @@ def list_models(session_config: dict | None = None, name: str = "openai-http") -
     except Exception as e:
         raise RuntimeError("requests library is required to list models for OpenAI-compatible providers") from e
 
-    cfg = _get_cfg(name, session_config)
+    cfg = _get_cfg(name, session_config, defaults=defaults)
     base_url = (cfg.get("base_url") or "").rstrip("/")
     api_key = cfg.get("api_key")
     headers = {"Accept": "application/json"}

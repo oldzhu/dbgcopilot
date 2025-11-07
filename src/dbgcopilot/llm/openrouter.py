@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownParameterType=false
+
 """OpenRouter provider integration (POC).
 
 This module implements a minimal client to OpenRouter's API for text generation.
@@ -13,8 +15,10 @@ import os
 import json
 from typing import Optional, Tuple, Dict, Any
 
+from . import params as param_utils
 
-def _get_api_key(meta: dict | None = None, session_config: dict | None = None) -> Optional[str]:
+
+def _get_api_key(meta: dict[str, Any] | None = None, session_config: dict[str, Any] | None = None) -> Optional[str]:
     # Priority: meta -> session_config -> env
     if meta and "api_key" in meta:
         return meta["api_key"]
@@ -64,8 +68,8 @@ def _extract_usage(data: Dict[str, Any], model: str) -> Dict[str, Any]:
 
 def _ask_openrouter(
     prompt: str,
-    meta: dict | None = None,
-    session_config: dict | None = None,
+    meta: dict[str, Any] | None = None,
+    session_config: dict[str, Any] | None = None,
 ) -> Tuple[str, Dict[str, Any]]:
     # Lazy import to avoid adding hard runtime deps for tests
     try:
@@ -96,12 +100,38 @@ def _ask_openrouter(
         or "openai/gpt-4o-mini"
     )
 
-    body = {
+    meta = meta or {}
+    default_temperature = meta.get("default_temperature")
+    if default_temperature is None:
+        default_temperature = 0.0
+    default_max_tokens = meta.get("default_max_tokens")
+    if default_max_tokens is None:
+        default_max_tokens = 512
+
+    body: Dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 512,
-        "temperature": 0.2,
     }
+    if default_max_tokens is not None:
+        try:
+            body["max_tokens"] = int(default_max_tokens)
+        except Exception:
+            body["max_tokens"] = 512
+    if default_temperature is not None:
+        try:
+            body["temperature"] = float(default_temperature)
+        except Exception:
+            body["temperature"] = 0.0
+    else:
+        body["temperature"] = 0.0
+
+    default_params = meta.get("default_params")
+    if isinstance(default_params, dict):
+        body = param_utils.apply_params(body, default_params, meta, assume_canonical=False)
+
+    provider_name = str(meta.get("name") or "openrouter")
+    session_params = param_utils.get_session_params(session_config or {}, provider_name)
+    body = param_utils.apply_params(body, session_params, meta, assume_canonical=True)
 
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=20)
@@ -131,10 +161,12 @@ def _ask_openrouter(
     return content, usage
 
 
-def create_provider(session_config: dict | None = None):
+def create_provider(session_config: dict[str, Any] | None = None, meta: dict[str, Any] | None = None):
     # Returns a callable that accepts prompt and returns string
+    meta = meta or {}
+
     def ask(prompt: str) -> str:
-        content, usage = _ask_openrouter(prompt, meta=None, session_config=session_config)
+        content, usage = _ask_openrouter(prompt, meta=meta, session_config=session_config)
         setattr(ask, "last_usage", usage)
         return content
 
@@ -142,7 +174,7 @@ def create_provider(session_config: dict | None = None):
     return ask
 
 
-def list_models(session_config: dict | None = None) -> list[str]:
+def list_models(session_config: dict[str, Any] | None = None) -> list[str]:
     """Return a list of available model IDs from OpenRouter.
 
     Tries the public models endpoint; if an API key is available, it will be sent.

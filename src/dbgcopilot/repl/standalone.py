@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import sys
 import uuid
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt
+from dbgcopilot.llm import params as _llm_params
 from dbgcopilot.utils.io import color_text
 
 
@@ -63,13 +64,16 @@ def _print_help() -> str:
             "  /new                       Start a new copilot session",
             "  /chatlog                   Show chat transcript",
             "  /config                    Show current config",
+            "  /auto [on|off|toggle]      Control auto-approve command execution",
             "  /prompts show|reload       Show or reload prompt config",
             "  /exec <cmd>                Run a debugger command (after /use)",
-            "  /llm list                  List LLM providers",
-            "  /llm use <name>            Select provider",
-            "  /llm models [provider]     List models for provider (OpenRouter & OpenAI-compatible)",
-            "  /llm model [provider] <m>  Set model for provider (OpenRouter & OpenAI-compatible)",
-            "  /llm key <provider> <key>  Set API key for provider (OpenRouter & OpenAI-compatible)",
+            "  /llm list                  List configured LLM providers",
+            "  /llm use <name>            Select provider for this session",
+            "  /llm models [provider]     List models (provider must support discovery)",
+            "  /llm model [...]           Get/set session or default models",
+            "  /llm provider ...          Manage provider definitions (add/set/show)",
+            "  /llm params ...            Inspect or tune provider parameters",
+            "  /llm key <provider> <key>  Set API key for this session",
             "  exit or quit               Leave copilot>",
             "Any other input is sent to the LLM.",
         ]
@@ -111,91 +115,415 @@ def _select_gdb() -> str:
 
 
 def _handle_llm(cmd: str) -> str:
-    parts = cmd.split()
-    action = parts[0] if parts else ""
+    parts = [p for p in (cmd or "").split() if p]
+    if not parts:
+        return (
+            "Usage: /llm list | /llm use <name> | /llm models [provider] | "
+            "/llm model [get|set|session] ... | /llm key <provider> <api_key> | "
+            "/llm provider <subcommand>"
+        )
+
     from dbgcopilot.llm import providers as _prov
+
     s = _ensure_session()
     sel = s.selected_provider
+    action = parts[0].lower()
+
+    def _usage() -> str:
+        return (
+            "Usage: /llm list | /llm use <name> | /llm models [provider] | "
+            "/llm model [get|set|session] ... | /llm params <action> [...] | "
+            "/llm key <provider> <api_key> | /llm provider <subcommand>"
+        )
+
+    def _session_model_key(provider: str) -> str:
+        if provider == "openrouter":
+            return "openrouter_model"
+        return provider.replace("-", "_") + "_model"
+
+    def _session_api_key_key(provider: str) -> str:
+        if provider == "openrouter":
+            return "openrouter_api_key"
+        return provider.replace("-", "_") + "_api_key"
+
+    def _format_provider_list(include_header: bool = True) -> str:
+        names = _prov.list_providers()
+        if not names:
+            return "No providers configured. Use /llm provider add to create one."
+        lines: list[str] = []
+        if include_header:
+            lines.append("Available LLM providers:")
+        for name in names:
+            prov = _prov.get_provider(name)
+            marker = "*" if sel == name else "-"
+            desc = ""
+            if prov is not None:
+                desc = prov.meta.get("description") or prov.meta.get("desc") or ""
+            line = f"{marker} {name}"
+            if desc:
+                line += f": {desc}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    def _handle_provider_subcommand(sub_args: list[str]) -> str:
+        import json as _json
+
+        if not sub_args:
+            return (
+                "Usage: /llm provider list | /llm provider path | /llm provider reload | "
+                "/llm provider show <name> | /llm provider get <name> [field] | "
+                "/llm provider set <name> <field> <value> | "
+                "/llm provider add <name> <base_url> [path] [model] [description]"
+            )
+
+        sub = sub_args[0].lower()
+
+        try:
+            if sub == "list":
+                return _format_provider_list()
+            if sub == "path":
+                return f"Provider config path: {_prov.config_path()}"
+            if sub == "reload":
+                _prov.reload()
+                return "Provider registry reloaded."
+            if sub == "show":
+                if len(sub_args) < 2:
+                    return "Usage: /llm provider show <name>"
+                data = _prov.provider_config(sub_args[1])
+                return _json.dumps(data, indent=2, sort_keys=True)
+            if sub == "get":
+                if len(sub_args) < 2:
+                    return "Usage: /llm provider get <name> [field]"
+                name = sub_args[1]
+                field = sub_args[2] if len(sub_args) >= 3 else None
+                value = _prov.get_provider_field(name, field)
+                if field:
+                    return f"{name}.{field}: {value if value else '(not set)'}"
+                return _json.dumps(value, indent=2, sort_keys=True)
+            if sub == "set":
+                if len(sub_args) < 4:
+                    return "Usage: /llm provider set <name> <field> <value>"
+                name = sub_args[1]
+                field = sub_args[2]
+                value = " ".join(sub_args[3:])
+                if value.lower() in {"-", "none", "null", "clear"}:
+                    value = ""
+                updated = _prov.set_provider_field(name, field, value)
+                if not value:
+                    return f"Cleared {field} for provider: {name}"
+                return f"Updated {field} for provider {name}: {updated}"
+            if sub == "add":
+                if len(sub_args) < 3:
+                    return "Usage: /llm provider add <name> <base_url> [path] [model] [description]"
+                name = sub_args[1]
+                base_url = sub_args[2]
+                path = sub_args[3] if len(sub_args) >= 4 else None
+                model = sub_args[4] if len(sub_args) >= 5 else None
+                description = " ".join(sub_args[5:]) if len(sub_args) >= 6 else ""
+                if path in {"-", "none"}:
+                    path = None
+                if model in {"-", "none"}:
+                    model = None
+                entry = _prov.add_provider(name=name, base_url=base_url, path=path, default_model=model, description=description)
+                snippet = _json.dumps(entry, indent=2, sort_keys=True)
+                return f"Added provider '{name}'. Stored in {_prov.config_path()}\n{snippet}"
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Provider command error: {e}"
+
+        return (
+            "Usage: /llm provider list | /llm provider path | /llm provider reload | "
+            "/llm provider show <name> | /llm provider get <name> [field] | "
+            "/llm provider set <name> <field> <value> | /llm provider add <name> <base_url> [path] [model] [description]"
+        )
+
+    def _params_usage() -> str:
+        return (
+            "Usage: /llm params list [provider] | /llm params get [provider] <param> | "
+            "/llm params set [provider] <param> <value> | /llm params clear [provider] <param|all>"
+        )
+
+    def _is_provider_name(candidate: str) -> bool:
+        return _prov.get_provider(candidate) is not None
+
+    def _require_provider(candidate: Optional[str]) -> tuple[str, Any]:
+        name = (candidate or "").strip()
+        if name:
+            prov_obj = _prov.get_provider(name)
+            if prov_obj is None:
+                raise ValueError(f"Unknown provider: {name}")
+            return name, prov_obj
+        if sel:
+            prov_obj = _prov.get_provider(sel)
+            if prov_obj is None:
+                raise ValueError(f"Unknown provider: {sel}")
+            return sel, prov_obj
+        raise ValueError("No provider selected. Use /llm use <name> first or pass a provider.")
+
+    def _capability_matches(meta: Dict[str, Any], original: str, canonical: str) -> bool:
+        caps_list = [str(c).lower() for c in _llm_params.list_capabilities(meta)]
+        if not caps_list:
+            return True
+        original_l = original.lower()
+        canonical_l = canonical.lower()
+        base = canonical.split(".")[-1].lower()
+        for cap in caps_list:
+            if cap == original_l or cap == canonical_l or cap == base or canonical_l.startswith(cap + "."):
+                return True
+        return False
+
+    def _handle_params(sub_args: list[str]) -> str:
+        if not sub_args:
+            return _params_usage()
+
+        sub = sub_args[0].lower()
+
+        if sub in {"help", "?"}:
+            return _params_usage()
+
+        if sub == "list":
+            provider_name = None
+            if len(sub_args) >= 2 and _is_provider_name(sub_args[1]):
+                provider_name = sub_args[1]
+            try:
+                provider_name, provider_obj = _require_provider(provider_name)
+            except ValueError as err:
+                return str(err)
+            caps = sorted([str(c) for c in _llm_params.list_capabilities(provider_obj.meta)], key=str.lower)
+            caps_text = ", ".join(caps) if caps else "(none declared)"
+            overrides = _llm_params.list_session_params(s.config, provider_name)
+            lines = [f"{provider_name} parameter capabilities:", f"- supported: {caps_text}"]
+            if overrides:
+                lines.append("- session overrides:")
+                for canonical, value in sorted(overrides.items()):
+                    label = _llm_params.display_name(provider_obj.meta, canonical)
+                    prefix = f"  {label}" + (f" [{canonical}]" if label != canonical else "")
+                    lines.append(f"{prefix} = {_llm_params.serialize_value(value)}")
+            else:
+                lines.append("- session overrides: (none)")
+            return "\n".join(lines)
+
+        if sub == "get":
+            if len(sub_args) < 2:
+                return _params_usage()
+            args = sub_args[1:]
+            if len(args) >= 2 and _is_provider_name(args[0]):
+                provider_name = args[0]
+                param_name = args[1]
+            else:
+                provider_name = None
+                param_name = args[0]
+            try:
+                provider_name, provider_obj = _require_provider(provider_name)
+                canonical, _ = _llm_params.canonicalize_param(provider_obj.meta, param_name)
+            except ValueError as err:
+                return str(err)
+            overrides = _llm_params.get_session_params(s.config, provider_name)
+            label = _llm_params.display_name(provider_obj.meta, canonical)
+            if canonical in overrides:
+                value = _llm_params.serialize_value(overrides[canonical])
+                return f"{provider_name} {label}: {value}"
+            defaults = provider_obj.meta.get("default_params")
+            if isinstance(defaults, dict) and canonical in defaults:
+                value = _llm_params.serialize_value(defaults[canonical])
+                return f"No session override. Default {provider_name} {label}: {value}"
+            return f"No session override set for {provider_name} {label}."
+
+        if sub == "set":
+            if len(sub_args) < 3:
+                return _params_usage()
+            args = sub_args[1:]
+            if len(args) >= 3 and _is_provider_name(args[0]):
+                provider_candidate = args[0]
+                param_name = args[1]
+                raw_value = " ".join(args[2:])
+            else:
+                provider_candidate = None
+                param_name = args[0]
+                raw_value = " ".join(args[1:]) if len(args) > 1 else ""
+            if not raw_value:
+                return _params_usage()
+            try:
+                provider_name, provider_obj = _require_provider(provider_candidate)
+                canonical, value, cleared = _llm_params.parse_value(provider_obj.meta, param_name, raw_value)
+            except ValueError as err:
+                return str(err)
+            label = _llm_params.display_name(provider_obj.meta, canonical)
+            if cleared:
+                removed = _llm_params.clear_session_param(s.config, provider_name, canonical)
+                if removed:
+                    return f"Cleared session override for {provider_name} {label}."
+                return f"No session override to clear for {provider_name} {label}."
+            _llm_params.set_session_param(s.config, provider_name, canonical, value)
+            value_txt = _llm_params.serialize_value(value)
+            note = ""
+            if not _capability_matches(provider_obj.meta, param_name, canonical):
+                note = " (provider did not declare this parameter)"
+            return f"Session override for {provider_name} {label} set to {value_txt}{note}"
+
+        if sub == "clear":
+            if len(sub_args) < 2:
+                return _params_usage()
+            args = sub_args[1:]
+            if len(args) >= 2 and _is_provider_name(args[0]):
+                provider_candidate = args[0]
+                target = args[1]
+            else:
+                provider_candidate = None
+                target = args[0]
+            try:
+                provider_name, provider_obj = _require_provider(provider_candidate)
+            except ValueError as err:
+                return str(err)
+            if target.lower() in {"all", "*"}:
+                removed = _llm_params.clear_all_session_params(s.config, provider_name)
+                if removed:
+                    return f"Cleared all session overrides for {provider_name}."
+                return f"No session overrides to clear for {provider_name}."
+            try:
+                canonical, _ = _llm_params.canonicalize_param(provider_obj.meta, target)
+            except ValueError as err:
+                return str(err)
+            label = _llm_params.display_name(provider_obj.meta, canonical)
+            removed = _llm_params.clear_session_param(s.config, provider_name, canonical)
+            if removed:
+                return f"Cleared session override for {provider_name} {label}."
+            return f"No session override to clear for {provider_name} {label}."
+
+        return _params_usage()
 
     if action == "list":
-        lines = ["Available LLM providers:"] + [f"- {p}" for p in _prov.list_providers()]
-        return "\n".join(lines)
+        return _format_provider_list()
 
     if action == "use" and len(parts) >= 2:
         name = parts[1]
         if _prov.get_provider(name) is None:
             return f"Unknown provider: {name}"
         s.selected_provider = name
+        s.config["llm_provider"] = name
         return f"Selected provider: {name}"
 
     if action == "models":
         provider = parts[1] if len(parts) >= 2 else (sel or "")
         if not provider:
             return "No provider selected. Use /llm use <name> first or pass a provider."
-        if provider == "openrouter":
-            try:
-                from dbgcopilot.llm import openrouter as _or
-                models = _or.list_models(s.config)
-                if not models:
-                    return "No models returned. You may need to set an API key."
-                return "OpenRouter models:\n" + "\n".join(f"- {m}" for m in models)
-            except Exception as e:
-                return f"Error listing models: {e}"
-        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
-            try:
-                from dbgcopilot.llm import openai_compat as _oa
-                models = _oa.list_models(s.config, name=provider)
-                if not models:
-                    return (
-                        f"No models returned from {provider}. Some providers do not support model listing "
-                        "via API; you can still set a model with /llm model."
-                    )
-                return f"{provider} models:\n" + "\n".join(f"- {m}" for m in models)
-            except Exception as e:
-                return f"Error listing models for {provider}: {e}"
-        return f"Model listing not supported for provider: {provider}"
+        if _prov.get_provider(provider) is None:
+            return f"Unknown provider: {provider}"
+        try:
+            models = _prov.list_models(provider, session_config=s.config)
+        except Exception as e:
+            return f"Error listing models for {provider}: {e}"
+        if not models:
+            return f"{provider} does not expose model listing via API."
+        lines = [f"{provider} models:"] + [f"- {m}" for m in models]
+        return "\n".join(lines)
 
     if action == "model":
+        if len(parts) == 1:
+            provider = sel or ""
+            if not provider:
+                return "No provider selected. Use /llm use <name> first or pass a provider."
+            try:
+                default_model = _prov.get_provider_field(provider, "model")
+            except ValueError as e:
+                return str(e)
+            session_override = s.config.get(_session_model_key(provider))
+            lines = [f"{provider} default model: {default_model or '(not set)'}"]
+            if session_override:
+                lines.append(f"Session override: {session_override}")
+            return "\n".join(lines)
+
+        sub = parts[1].lower()
+
+        if sub == "get":
+            provider = parts[2] if len(parts) >= 3 else (sel or "")
+            if not provider:
+                return "No provider selected. Use /llm use <name> first or pass a provider."
+            try:
+                default_model = _prov.get_provider_field(provider, "model")
+            except ValueError as e:
+                return str(e)
+            session_override = s.config.get(_session_model_key(provider))
+            lines = [f"{provider} default model: {default_model or '(not set)'}"]
+            if session_override:
+                lines.append(f"Session override: {session_override}")
+            return "\n".join(lines)
+
+        if sub == "set":
+            if len(parts) == 3:
+                provider = sel or ""
+                model = parts[2]
+            elif len(parts) >= 4:
+                provider = parts[2]
+                model = " ".join(parts[3:])
+            else:
+                provider = ""
+                model = ""
+            if not provider or not model:
+                return "Usage: /llm model set [provider] <model>"
+            if model.lower() in {"-", "none", "clear"}:
+                model = ""
+            try:
+                _prov.set_provider_field(provider, "model", model)
+            except ValueError as e:
+                return str(e)
+            if not model:
+                return f"Default model for {provider} cleared."
+            return f"Default model for {provider} set to: {model}"
+
+        if sub in {"session", "override"}:
+            if len(parts) <= 2:
+                return "Usage: /llm model session [provider] <model>"
+            if len(parts) == 3:
+                provider = sel or ""
+                model = parts[2]
+            else:
+                provider = parts[2]
+                model = " ".join(parts[3:])
+            if not provider:
+                return "No provider selected. Use /llm use <name> first or pass a provider."
+            if model.lower() in {"-", "none", "clear"}:
+                s.config.pop(_session_model_key(provider), None)
+                return f"Session model override cleared for {provider}."
+            s.config[_session_model_key(provider)] = model
+            return f"Session model override for {provider} set to: {model}"
+
+        # Legacy fallback: treat as setting session override (maintains backwards compatibility)
         if len(parts) == 2:
-            provider = sel
+            provider = sel or ""
             model = parts[1]
-        elif len(parts) >= 3:
+        else:
             provider = parts[1]
             model = " ".join(parts[2:])
-        else:
-            provider = None
-            model = None
         if not provider or not model:
-            return "Usage: /llm model [provider] <model>"
-        if provider == "openrouter":
-            s.config["openrouter_model"] = model
-            return f"OpenRouter model set to: {model}"
-        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
-            key = provider.replace("-", "_") + "_model"
-            s.config[key] = model
-            return f"{provider} model set to: {model}"
-        return f"Setting model not supported for provider: {provider}"
+            return "Usage: /llm model [get|set|session] ..."
+        s.config[_session_model_key(provider)] = model
+        return (
+            f"Session model override for {provider} set to: {model}"
+            " (legacy syntax; prefer /llm model session ...)"
+        )
 
-    if action == "key" and len(parts) >= 3:
+    if action == "key":
+        if len(parts) < 3:
+            return "Usage: /llm key <provider> <api_key>"
         provider = parts[1]
         api_key = " ".join(parts[2:]).strip()
-        if provider == "openrouter":
-            if api_key:
-                s.config["openrouter_api_key"] = api_key
-                return "OpenRouter API key set for this session."
-            return "Missing API key."
-        if provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
-            if api_key:
-                key = provider.replace("-", "_") + "_api_key"
-                s.config[key] = api_key
-                return f"{provider} API key set for this session."
-            return "Missing API key."
-        return f"API key setting not supported for provider: {provider}"
+        if not provider:
+            return "Usage: /llm key <provider> <api_key>"
+        if api_key.lower() in {"-", "none", "clear"}:
+            s.config.pop(_session_api_key_key(provider), None)
+            return f"API key cleared for {provider} (session only)."
+        s.config[_session_api_key_key(provider)] = api_key
+        return f"{provider} API key set for this session."
 
-    return (
-        "Usage: /llm list | /llm use <name> | /llm models [provider] | "
-        "/llm model [provider] <model> | /llm key <provider> <api_key>"
-    )
+    if action == "provider":
+        return _handle_provider_subcommand(parts[1:])
+
+    if action == "params":
+        return _handle_params(parts[1:])
+
+    return _usage()
 
 
 def _select_lldb() -> str:
@@ -288,6 +616,40 @@ def main(argv: Optional[list[str]] = None) -> int:
                 s = _ensure_session()
                 _echo(f"Config: {s.config}")
                 _echo(f"Selected provider: {s.selected_provider}")
+                continue
+            if verb in {"/auto", "/autoapprove", "/auto-approve"}:
+                choice = (arg or "").strip().lower()
+                s = _ensure_session()
+                if choice in {"", "status"}:
+                    status = "enabled" if s.auto_accept_commands else "disabled"
+                    _echo(f"Auto-approve is currently {status}. Use /auto on|off to change it.")
+                    continue
+                if choice in {"on", "enable", "enabled"}:
+                    if s.auto_accept_commands:
+                        _echo("Auto-approve already enabled.")
+                        continue
+                    s.auto_accept_commands = True
+                    s.config["auto_accept_commands"] = "true"
+                    _echo("Auto-approve enabled: suggested commands will run without prompting.")
+                    continue
+                if choice in {"off", "disable", "disabled"}:
+                    if not s.auto_accept_commands:
+                        _echo("Auto-approve already disabled.")
+                        continue
+                    s.auto_accept_commands = False
+                    s.config.pop("auto_accept_commands", None)
+                    _echo("Auto-approve disabled: confirmations required before running commands.")
+                    continue
+                if choice == "toggle":
+                    s.auto_accept_commands = not s.auto_accept_commands
+                    if s.auto_accept_commands:
+                        s.config["auto_accept_commands"] = "true"
+                    else:
+                        s.config.pop("auto_accept_commands", None)
+                    status = "enabled" if s.auto_accept_commands else "disabled"
+                    _echo(f"Auto-approve {status}.")
+                    continue
+                _echo("Usage: /auto [on|off|toggle|status]")
                 continue
             if verb == "/agent":
                 _echo("Agent mode has moved to the new dbgagent tool.")

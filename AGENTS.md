@@ -19,6 +19,7 @@ Key locations:
   - `make build`
   - `make install-wheel`
 - Run tests: `pytest -q` (configured via `pyproject.toml`)
+- Always activate the repo venv (`source .venv/bin/activate`) before running tests or tooling.
 - Sanity run (optional):
   - Start standalone REPL: `dbgcopilot`
   - In REPL: `/use gdb` or `/use lldb`, then `/exec help where`

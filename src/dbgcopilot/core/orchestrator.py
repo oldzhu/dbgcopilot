@@ -135,6 +135,7 @@ class CopilotOrchestrator:
             return self._execute_with_followup(cmd)
         if choice in {"a", "auto", "auto yes", "auto-yes"}:
             self.state.auto_accept_commands = True
+            self.state.config["auto_accept_commands"] = "true"
             executed = self._execute_with_followup(cmd)
             prefix = "Auto-accept enabled for this session."
             return f"{prefix}\n{executed}" if executed else prefix
@@ -304,16 +305,11 @@ class CopilotOrchestrator:
             prov = providers.get_provider(pname)
             if prov:
                 try:
-                    if pname == "openrouter":
-                        from dbgcopilot.llm import openrouter as _or
-                        ask_fn = _or.create_provider(session_config=self.state.config)
-                        answer = ask_fn(primed_question)
-                    elif pname in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "llama-cpp", "modelscope"}:
-                        from dbgcopilot.llm import openai_compat as _oa
-                        ask_fn = _oa.create_provider(session_config=self.state.config, name=pname)
-                        answer = ask_fn(primed_question)
-                    else:
-                        answer = prov.ask(primed_question)
+                    try:
+                        client = prov.create_client(self.state.config)
+                    except Exception:
+                        client = prov.ask
+                    answer = client(primed_question)
 
                     user_line = f"User: {question.strip()}"
                     assistant_line = f"Assistant: {answer.strip()}"
