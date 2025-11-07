@@ -64,7 +64,11 @@
         <form id="chat-form" class="chat-input">
           <textarea id="chat-message" rows="3" placeholder="Ask for guidance…"></textarea>
           <div class="chat-controls">
-            <button type="submit">Send</button>
+            <label class="chat-auto-approve" for="chat-auto-approve">
+              <input type="checkbox" id="chat-auto-approve" name="auto-approve" />
+              <span>Auto-approve</span>
+            </label>
+            <button type="submit" class="chat-send-button">Send</button>
           </div>
         </form>
         <div

@@ -48,6 +48,7 @@ class SessionManager:
         api_key: Optional[str],
         program: Optional[str],
         corefile: Optional[str],
+        auto_approve: bool = False,
     ) -> tuple[Session, list[str]]:
         async with self._lock:
             session_id = uuid.uuid4().hex[:8]
@@ -62,6 +63,9 @@ class SessionManager:
                 state.config[f"{provider.replace('-', '_')}_api_key"] = api_key
             if model:
                 state.config[f"{provider.replace('-', '_')}_model"] = model
+            if auto_approve:
+                state.auto_accept_commands = True
+                state.config["auto_accept_commands"] = "true"
             orchestrator = CopilotOrchestrator(backend, state)
             session = Session(
                 session_id=session_id,
@@ -125,6 +129,13 @@ class SessionManager:
                     session.debugger_backend.close()
                 except Exception:
                     pass
+
+    def set_auto_approve(self, session: Session, enabled: bool) -> None:
+        session.state.auto_accept_commands = enabled
+        if enabled:
+            session.state.config["auto_accept_commands"] = "true"
+        else:
+            session.state.config.pop("auto_accept_commands", None)
 
     async def run_debugger_command(self, session: Session, command: str) -> None:
         result = await asyncio.to_thread(session.debugger_backend.run_command, command)
@@ -218,6 +229,13 @@ class SessionManager:
 
     def _format_debugger_output(self, session: Session, text: Optional[str]) -> str:
         raw = (text or "").rstrip("\r")
+        if raw:
+            raw = (
+                raw.replace("\x1b[?2004l", "")
+                .replace("\x1b[?2004h", "")
+                .replace("\u001b[?2004l", "")
+                .replace("\u001b[?2004h", "")
+            )
         if raw:
             lines = raw.splitlines()
             if lines:

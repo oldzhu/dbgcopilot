@@ -1,3 +1,8 @@
+:root {
+  --chat-font-family: var(--vscode-font-family, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif);
+  --chat-font-size: 0.8rem;
+}
+
 .chat-config-body .select-wrapper {
   position: relative;
 }
@@ -275,6 +280,13 @@ body {
   padding: 0.4rem 0.5rem;
   border-radius: 3px;
   font-size: 0.85rem;
+}
+
+.chat-input textarea {
+  font-family: var(--chat-font-family);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  resize: vertical;
 }
 
 .session-form button,
@@ -585,6 +597,9 @@ body {
   min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: transparent #1b1b1b;
+  font-family: var(--chat-font-family);
+  font-size: var(--chat-font-size);
+  line-height: 1.35;
 }
 
 .chat-history:hover,
@@ -684,7 +699,7 @@ body {
 
 .chat-entry {
   margin-bottom: 0.75rem;
-  font-size: 0.9rem;
+  font-size: 1em;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -708,7 +723,7 @@ body {
 
 .chat-entry-label {
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 0.7em;
   letter-spacing: 0.01em;
   color: inherit;
 }
@@ -725,14 +740,14 @@ body {
 
 .chat-bubble {
   max-width: 92%;
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.6rem;
   border-radius: 10px;
   border: 1px solid #3c3c3c;
   background-color: #252526;
   color: inherit;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.45;
+  line-height: 1.35;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
@@ -747,7 +762,7 @@ body {
 }
 
 .chat-entry.assistant.proposal .chat-entry-label {
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.3rem;
 }
 
 .chat-proposal-card {
@@ -830,6 +845,37 @@ body {
 .chat-controls {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chat-auto-approve {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #c5c5c5;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chat-auto-approve input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  accent-color: #0e639c;
+  cursor: pointer;
+}
+
+.chat-auto-approve span {
+  line-height: 1;
+}
+
+.chat-send-button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  min-width: 4.5rem;
+  border-radius: 3px;
 }
 
 .chat-config-panel {

@@ -43,6 +43,7 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
     corefile = payload.get("corefile")
     model = payload.get("model")
     api_key = payload.get("api_key")
+    auto_approve = bool(payload.get("auto_approve"))
 
     session, initial_messages = await session_manager.create_session(
         debugger=required,
@@ -51,6 +52,7 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
         api_key=api_key,
         program=program,
         corefile=corefile,
+        auto_approve=auto_approve,
     )
     return JSONResponse({"session_id": session.session_id, "initial_messages": initial_messages})
 
@@ -91,6 +93,17 @@ async def run_chat(session_id: str, payload: Dict[str, Any]) -> JSONResponse:
 
     answer = await session_manager.run_chat(session, message)
     return JSONResponse({"status": "completed", "answer": answer})
+
+
+@router.post("/sessions/{session_id}/auto-approve")
+async def set_auto_approve(session_id: str, payload: Dict[str, Any]) -> JSONResponse:
+    try:
+        session = session_manager.get_session(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found")
+    enabled = bool(payload.get("enabled"))
+    session_manager.set_auto_approve(session, enabled)
+    return JSONResponse({"status": "ok", "enabled": enabled})
 
 
 @router.get("/workspace")

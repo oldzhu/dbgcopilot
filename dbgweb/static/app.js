@@ -5,6 +5,7 @@ const terminalContainer = document.getElementById("debugger-terminal");
 const chatHistory = document.getElementById("chat-history");
 const chatForm = document.getElementById("chat-form");
 const chatMessage = document.getElementById("chat-message");
+const autoApproveToggle = document.getElementById("chat-auto-approve");
 const chatConfigButton = document.getElementById("chat-config-button");
 const chatConfigPanel = document.getElementById("chat-config-panel");
 const chatConfigClose = document.getElementById("chat-config-close");
@@ -36,6 +37,7 @@ let providerSelectWrapper = null;
 let providerDropdownOpen = false;
 let providerOptionElements = [];
 const providerPlaceholderText = "Select a provider";
+let desiredAutoApprove = false;
 
 const api = {
   async getStatus() {
@@ -107,11 +109,47 @@ const api = {
     }
     return resp.json();
   },
+  async setAutoApprove(id, enabled) {
+    const resp = await fetch(`/api/sessions/${id}/auto-approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`auto-approve update failed: ${resp.status} ${text}`);
+    }
+    return resp.json();
+  },
 };
 
 function setStatus(text, ok = true) {
   statusIndicator.textContent = text;
   statusIndicator.classList.toggle("error", !ok);
+}
+
+async function applyAutoApprove(enabled, options = {}) {
+  const { silent = false } = options;
+  desiredAutoApprove = enabled;
+  if (autoApproveToggle) {
+    autoApproveToggle.checked = enabled;
+  }
+  if (!sessionId) {
+    return;
+  }
+  try {
+    await api.setAutoApprove(sessionId, enabled);
+    if (!silent) {
+      appendChatEntry("assistant", `[chat] auto-approve ${enabled ? "enabled" : "disabled"}`);
+    }
+  } catch (err) {
+    console.error(err);
+    if (autoApproveToggle) {
+      autoApproveToggle.checked = !enabled;
+    }
+    desiredAutoApprove = autoApproveToggle ? autoApproveToggle.checked : false;
+    appendChatEntry("assistant", `[error] auto-approve update failed: ${err.message}`);
+  }
 }
 
 function populateProviders(data) {
@@ -811,6 +849,23 @@ if (chatConfigClose) {
   chatConfigClose.addEventListener("click", () => closeChatConfig({ returnFocus: true }));
 }
 
+if (autoApproveToggle) {
+  desiredAutoApprove = autoApproveToggle.checked;
+  autoApproveToggle.addEventListener("change", async () => {
+    desiredAutoApprove = autoApproveToggle.checked;
+    if (!sessionId) {
+      setStatus(
+        desiredAutoApprove
+          ? "auto-approve will be enabled when a session starts"
+          : "auto-approve disabled (no active session)",
+        true
+      );
+      return;
+    }
+    await applyAutoApprove(desiredAutoApprove);
+  });
+}
+
 if (providerSelectTrigger) {
   providerSelectTrigger.addEventListener("click", (event) => {
     if (providerSelectTrigger.disabled) {
@@ -930,6 +985,7 @@ startSessionButton.addEventListener("click", async () => {
     model: document.getElementById("model-input").value.trim() || null,
     api_key: document.getElementById("api-key-input").value.trim() || null,
     program: document.getElementById("program-input").value.trim() || null,
+    auto_approve: desiredAutoApprove,
   };
 
   if (!payload.provider) {
@@ -963,6 +1019,9 @@ startSessionButton.addEventListener("click", async () => {
     connectWebSockets(sessionId);
     updateSessionControls(true);
     await dispatchDebuggerCommand("");
+    if (desiredAutoApprove) {
+      await applyAutoApprove(true, { silent: true });
+    }
   } catch (err) {
     console.error(err);
     setStatus(`session error: ${err.message}`, false);
