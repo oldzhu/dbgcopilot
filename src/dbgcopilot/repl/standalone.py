@@ -565,10 +565,14 @@ def _handle_llm(cmd: str) -> str:
     if action == "key":
         if len(parts) < 3:
             return "Usage: /llm key <provider> <api_key>"
-        provider = parts[1]
+        provider_input = parts[1]
         api_key = " ".join(parts[2:]).strip()
-        if not provider:
+        if not provider_input:
             return "Usage: /llm key <provider> <api_key>"
+        try:
+            provider, _ = _require_provider(provider_input)
+        except ValueError as err:
+            return str(err)
         if api_key.lower() in {"-", "none", "clear"}:
             s.config.pop(_session_api_key_key(provider), None)
             return f"API key cleared for {provider} (session only)."
