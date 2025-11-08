@@ -146,5 +146,3 @@ class DelveSubprocessBackend:
                     self.child.close(force=True)
         except Exception:
             pass
-
-```}

@@ -1,5 +1,5 @@
 GO ?= go
-BINDIR ?= ../../bin
+BINDIR ?= ../../bin/go
 TARGET := $(BINDIR)/crash
 
 all: $(TARGET)

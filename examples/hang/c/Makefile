@@ -1,6 +1,6 @@
 CC ?= gcc
 CFLAGS ?= -g -O0 -Wall -Wextra -pthread
-BINDIR ?= ../../bin
+BINDIR ?= ../../bin/c
 TARGET := $(BINDIR)/hang
 
 all: $(TARGET)

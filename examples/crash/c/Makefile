@@ -1,6 +1,6 @@
 CC ?= gcc
 CFLAGS ?= -g -O0 -Wall -Wextra
-BINDIR ?= ../../bin
+BINDIR ?= ../../bin/c
 TARGET := $(BINDIR)/crash
 
 all: $(TARGET)

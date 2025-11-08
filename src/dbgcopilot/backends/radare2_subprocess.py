@@ -147,5 +147,3 @@ class Radare2SubprocessBackend:
                     self.child.close(force=True)
         except Exception:
             pass
-
-```}
