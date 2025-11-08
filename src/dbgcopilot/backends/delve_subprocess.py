@@ -57,7 +57,11 @@ class DelveSubprocessBackend:
             encoding="utf-8",
             timeout=self.timeout,
         )
-        banner = self._expect_prompt()
+        try:
+            banner = self._expect_prompt()
+        except (pexpect.EOF, pexpect.TIMEOUT) as exc:  # type: ignore[arg-type]
+            message = self._format_startup_error(exc)
+            raise RuntimeError(message)
         self._startup_output = banner.strip()
 
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
@@ -112,6 +116,24 @@ class DelveSubprocessBackend:
         if lines and lines[0].strip() == cmd.strip():
             lines = lines[1:]
         return "\n".join(lines)
+
+    def _format_startup_error(self, exc: Exception) -> str:
+        output = ""
+        if self.child is not None:
+            try:
+                output = (self.child.before or "").strip()
+            except Exception:
+                output = ""
+            try:
+                self.child.close(force=True)
+            except Exception:
+                pass
+            finally:
+                self.child = None
+        detail = output or str(exc).strip()
+        if detail:
+            return f"Delve failed to start: {detail}"
+        return "Delve failed to start; ensure the binary path is correct and accessible."
 
     def _handle_exit(self, cmd: str) -> str:
         if self.child is None:
