@@ -9,6 +9,7 @@
       "kind": "openrouter",
       "description": "OpenRouter API provider (requires OPENROUTER_API_KEY)",
       "default_model": "openai/gpt-4o-mini",
+      "supports_model_list": true,
       "capabilities": ["temperature", "max_tokens", "top_p", "presence_penalty", "frequency_penalty", "stop_sequences", "thinking"],
       "param_aliases": {
         "enable_thinking": "thinking.enabled",
@@ -66,7 +67,7 @@
       "description": "Kimi (Moonshot) OpenAI-compatible API",
       "base_url": "https://api.moonshot.cn",
       "path": "/v1/chat/completions",
-      "default_model": "moonshot-v1-8k",
+      "default_model": "kimi-k2-0905-preview",
       "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences", "web_search"],
       "param_aliases": {
         "web_search": "extras.enable_web_search"
@@ -100,6 +101,7 @@
       "base_url": "https://api-inference.modelscope.cn",
       "path": "/v1/chat/completions",
       "default_model": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+      "supports_model_list": true,
       "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences", "thinking"],
       "param_aliases": {
         "thinking_budget_tokens": "thinking.max_tokens"

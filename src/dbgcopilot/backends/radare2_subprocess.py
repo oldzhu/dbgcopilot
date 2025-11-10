@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from typing import Optional, List, Any
 import os
-
-from dbgcopilot.utils.io import strip_ansi
+import tempfile
 
 try:
     import r2pipe  # type: ignore
@@ -37,6 +36,9 @@ class Radare2SubprocessBackend:
         self.working_dir = working_dir or os.getcwd()
         self._startup_output: str = ""
         self._r2: Optional[Any] = None
+        self.prompt = "radare2> "
+        self._log_path: Optional[str] = None
+        self._log_offset: int = 0
 
         if os.path.isabs(program):
             resolved_path = program
@@ -73,6 +75,9 @@ class Radare2SubprocessBackend:
                 os.chdir(prev_cwd)
 
         self._configure_session()
+        self._setup_logging()
+        self._clear_logs()
+        self._update_prompt()
         self._startup_output = f"radare2 session ready for {os.path.basename(self._program_path)}"
 
     def run_command(self, cmd: str, timeout: float | None = None) -> str:  # noqa: ARG002 - timeout kept for parity
@@ -85,16 +90,36 @@ class Radare2SubprocessBackend:
 
         outputs: List[str] = []
         for part in self._split_commands(text):
+            if not part:
+                continue
             lower = part.lower()
             if lower in self._EXIT_COMMANDS:
                 outputs.append(self._handle_exit(part))
                 break
+            self._clear_logs()
             try:
                 out = self._execute(part)
             except Exception as exc:
-                outputs.append(f"[radare2 error] {part}: {exc}")
+                logs = self._drain_logs()
+                self._update_prompt()
+                combined = self._merge_output("", logs)
+                if combined:
+                    outputs.append(combined)
+                else:
+                    outputs.append(f"[radare2 error] {part}: {exc}")
+                if isinstance(exc, RuntimeError) and "Process terminated unexpectedly" in str(exc):
+                    self._r2 = None
+                    try:
+                        self.initialize_session()
+                    except Exception as restart_exc:  # pragma: no cover - best effort recovery
+                        outputs.append(f"[radare2 restart failed] {restart_exc}")
+                        break
                 continue
-            outputs.append(out)
+            logs = self._drain_logs()
+            self._update_prompt()
+            combined = self._merge_output(out, logs)
+            if combined:
+                outputs.append(combined)
         return "\n".join(chunk for chunk in outputs if chunk)
 
     # Helpers ----------------------------------------------------------
@@ -108,9 +133,10 @@ class Radare2SubprocessBackend:
         if self._r2 is None:
             return
         for cmd in (
-            "e scr.color=false",
+            "e scr.color=true",
             "e scr.echo=false",
             "e scr.interactive=false",
+            "e scr.clippy=false",
             "e bin.cache=true",
         ):
             try:
@@ -125,14 +151,92 @@ class Radare2SubprocessBackend:
         return self._sanitize_output(output)
 
     def _sanitize_output(self, text: str) -> str:
-        cleaned = strip_ansi(text or "")
-        cleaned = cleaned.replace("\r", "")
+        if not text:
+            return ""
+        cleaned = text.replace("\r", "")
         lines = cleaned.splitlines()
         while lines and not lines[0].strip():
             lines.pop(0)
         while lines and not lines[-1].strip():
             lines.pop()
         return "\n".join(lines)
+
+    def _setup_logging(self) -> None:
+        if self._r2 is None:
+            return
+        if self._log_path is None:
+            fd, path = tempfile.mkstemp(prefix="radare2-", suffix=".log")
+            os.close(fd)
+            self._log_path = path
+        else:
+            try:
+                open(self._log_path, "w", encoding="utf-8").close()
+            except Exception:
+                fd, path = tempfile.mkstemp(prefix="radare2-", suffix=".log")
+                os.close(fd)
+                self._log_path = path
+        self._log_offset = 0
+        for cmd in (
+            f"e log.file={self._log_path}",
+            "e log.level=2",
+            "e log.cons=false",
+            "e log.quiet=false",
+        ):
+            try:
+                self._r2.cmd(cmd)
+            except Exception:
+                pass
+
+    def _drain_logs(self) -> str:
+        path = self._log_path
+        if not path:
+            return ""
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                handle.seek(self._log_offset)
+                data = handle.read()
+                self._log_offset = handle.tell()
+        except FileNotFoundError:
+            return ""
+        except Exception:
+            return ""
+        return data.strip()
+
+    def _clear_logs(self) -> None:
+        if self._log_path:
+            self._drain_logs()
+
+    def _merge_output(self, text: str, logs: str) -> str:
+        parts: List[str] = []
+        if text:
+            parts.append(text)
+        if logs:
+            parts.append(logs)
+        return "\n".join(part for part in parts if part)
+
+    def _update_prompt(self) -> None:
+        if self._r2 is None:
+            self.prompt = "radare2> "
+            return
+        try:
+            addr = (self._r2.cmd("s") or "").strip()
+        except Exception:
+            self.prompt = "radare2> "
+            return
+        self.prompt = f"[{addr}]> " if addr else "radare2> "
+
+    def _teardown_logging(self) -> None:
+        path = self._log_path
+        if not path:
+            return
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        finally:
+            self._log_path = None
+            self._log_offset = 0
 
     def _format_startup_error(self, exc: Exception) -> str:
         detail = str(exc).strip()
@@ -152,6 +256,7 @@ class Radare2SubprocessBackend:
             pass
         finally:
             self._r2 = None
+            self._teardown_logging()
 
         try:
             self.initialize_session()
@@ -165,3 +270,5 @@ class Radare2SubprocessBackend:
                 self._r2.quit()
         except Exception:
             pass
+        finally:
+            self._teardown_logging()

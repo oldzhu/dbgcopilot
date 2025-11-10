@@ -24,6 +24,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "kind": "openrouter",
             "description": "OpenRouter API provider (requires OPENROUTER_API_KEY)",
             "default_model": "openai/gpt-4o-mini",
+            "supports_model_list": True,
             "capabilities": [
                 "temperature",
                 "max_tokens",
@@ -160,6 +161,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "base_url": "https://api-inference.modelscope.cn",
             "path": "/v1/chat/completions",
             "default_model": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+            "supports_model_list": True,
             "capabilities": [
                 "temperature",
                 "max_tokens",

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from dbgcopilot.core.orchestrator import CopilotOrchestrator
-from dbgcopilot.core.state import SessionState, Attempt
+from dbgcopilot.core.state import SessionState, Attempt, resolve_auto_round_limit
 from dbgcopilot.utils.io import strip_ansi
 from dbgcopilot.backends.gdb_subprocess import GdbSubprocessBackend
 from dbgcopilot.backends.lldb_inprocess import LldbInProcessBackend
@@ -66,6 +66,7 @@ class SessionManager:
             if auto_approve:
                 state.auto_accept_commands = True
                 state.config["auto_accept_commands"] = "true"
+                state.auto_rounds_remaining = resolve_auto_round_limit(state.config)
             backend_name = getattr(backend, "name", "")
             if program and backend_name in {"delve", "radare2"}:
                 state.config["program"] = program
@@ -97,6 +98,17 @@ class SessionManager:
                 )
 
             state.chat_output_sink = emit_chat
+
+            def emit_chat_event(event: Dict[str, Any]) -> None:
+                if not event:
+                    return
+                try:
+                    payload = json.dumps(event)
+                except TypeError:
+                    return
+                asyncio.run_coroutine_threadsafe(session.chat_queue.put(payload), loop)
+
+            state.chat_event_sink = emit_chat_event
             self.sessions[session_id] = session
             initial_messages: list[str] = []
             if program:
@@ -135,12 +147,24 @@ class SessionManager:
                 except Exception:
                     pass
 
-    def set_auto_approve(self, session: Session, enabled: bool) -> None:
-        session.state.auto_accept_commands = enabled
+    async def set_auto_approve(self, session: Session, enabled: bool) -> None:
+        state = session.state
+        state.auto_accept_commands = enabled
+        event: Dict[str, Any] = {"type": "auto_approve_state", "enabled": enabled}
         if enabled:
-            session.state.config["auto_accept_commands"] = "true"
+            state.config["auto_accept_commands"] = "true"
+            limit = resolve_auto_round_limit(state.config)
+            state.auto_rounds_remaining = limit
+            event["rounds_remaining"] = limit
         else:
-            session.state.config.pop("auto_accept_commands", None)
+            state.config.pop("auto_accept_commands", None)
+            state.auto_rounds_remaining = None
+        try:
+            payload = json.dumps(event)
+        except TypeError:
+            payload = ""
+        if payload:
+            await session.chat_queue.put(payload)
 
     async def run_debugger_command(self, session: Session, command: str) -> None:
         result = await asyncio.to_thread(session.debugger_backend.run_command, command)
@@ -289,6 +313,8 @@ class SessionManager:
                 if backend_prompt:
                     prompt_variants.append(strip_ansi(backend_prompt).strip().lower())
                 prompt_variants.extend(["(gdb)", "gdb>", "(lldb)", "lldb>"])
+                if backend_name == "radare2":
+                    prompt_variants.extend(["radare2>", "(radare2)"])
                 ansi_prefix = r"(?:\x1b\[[0-9;]*m)*"
                 prompt_patterns: list[re.Pattern[str]] = []
                 for prefix in prompt_variants:
@@ -302,9 +328,7 @@ class SessionManager:
                     if not match:
                         continue
                     remainder = first[match.end():].lstrip()
-                    if remainder:
-                        lines[0] = remainder
-                    else:
+                    if not remainder:
                         lines = lines[1:]
                     break
             if backend_name == "delve" and lines:
@@ -322,6 +346,21 @@ class SessionManager:
                         continue
                     cleaned_line = prompt_token.sub("", line)
                     cleaned.append(cleaned_line)
+                lines = cleaned
+            if backend_name == "radare2" and lines:
+                prompt_token = re.compile(r"^(?:\x1b\[[0-9;]*m)*(?:radare2>|\(radare2\))\s*", re.IGNORECASE)
+                cleaned: list[str] = []
+                for line in lines:
+                    match = prompt_token.match(line or "")
+                    if not match:
+                        cleaned.append(line)
+                        continue
+                    remainder = (line or "")[match.end():].lstrip()
+                    if remainder:
+                        cleaned.append(line)
+                    else:
+                        # Drop standalone prompts but preserve command echoes.
+                        continue
                 lines = cleaned
             raw = "\n".join(lines)
         prompt = self._prompt_text(session)

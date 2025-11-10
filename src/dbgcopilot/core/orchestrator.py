@@ -6,7 +6,7 @@ and manage session state. Currently a minimal placeholder.
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownParameterType=false, reportUnusedFunction=false
 from __future__ import annotations
 
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 import re
 from dbgcopilot.core.state import Attempt, SessionState, resolve_auto_round_limit
 from dbgcopilot.llm import providers
@@ -38,10 +38,31 @@ class CopilotOrchestrator:
     def _initialize_auto_rounds(self) -> int:
         limit = resolve_auto_round_limit(self.state.config)
         self.state.auto_rounds_remaining = limit
+        self._emit_chat_event(
+            {
+                "type": "auto_approve_state",
+                "enabled": True,
+                "rounds_remaining": limit,
+            }
+        )
         return limit
 
     def _clear_auto_rounds(self) -> None:
         self.state.auto_rounds_remaining = None
+
+    def _emit_chat_event(self, event: Dict[str, Any]) -> None:
+        if not event:
+            return
+        sink = getattr(self.state, "chat_event_sink", None)
+        delivered = False
+        if callable(sink):
+            try:
+                sink(event)
+                delivered = True
+            except Exception:
+                delivered = False
+        if not delivered:
+            self.state.pending_chat_events.append(event)
 
     def _disable_auto_mode(self, reason: Optional[str] = None) -> str:
         self.state.auto_accept_commands = False
@@ -49,6 +70,7 @@ class CopilotOrchestrator:
         self._clear_auto_rounds()
         message = reason or "Auto-approve disabled: confirmations required before running commands."
         colors = getattr(self.state, "colors_enabled", True)
+        self._emit_chat_event({"type": "auto_approve_state", "enabled": False})
         return color_text(message, "yellow", enable=colors) if colors else message
 
     def _reserve_auto_round(self) -> tuple[bool, Optional[str]]:
@@ -173,26 +195,50 @@ class CopilotOrchestrator:
             self.state.auto_accept_commands = True
             self.state.config["auto_accept_commands"] = "true"
             limit = self._initialize_auto_rounds()
-            executed = self._execute_with_followup(cmd)
+            executed = self._execute_with_followup(cmd, auto_loop=True)
             prefix = f"Auto-accept enabled for this session (limit {limit} rounds)."
             return f"{prefix}\n{executed}" if executed else prefix
 
         # Treat any other response (including blank) as skip
         return "Command skipped."
 
-    def _execute_with_followup(self, command: str, preface: Optional[str] = None) -> str:
+    def _execute_with_followup(
+        self,
+        command: str,
+        preface: Optional[str] = None,
+        *,
+        auto_loop: bool = False,
+    ) -> str:
         segments: list[str] = []
+        loop_started = False
+        if auto_loop:
+            depth = getattr(self.state, "auto_loop_depth", 0) or 0
+            new_depth = depth + 1
+            self.state.auto_loop_depth = new_depth
+            if depth == 0:
+                self._emit_chat_event({"type": "auto_loop_state", "active": True})
+            loop_started = True
         if preface and not self.state.last_answer_streamed:
             colors = getattr(self.state, "colors_enabled", True)
             segments.append(color_text(preface, "green", enable=colors) if colors else preface)
-        exec_output, streamed = _execute_once(self, command)
-        if exec_output and not streamed:
-            segments.append(exec_output)
-        followup_prompt = self._build_followup_prompt(command, exec_output)
-        followup = self._llm_turn(followup_prompt)
-        if followup and not self.state.last_answer_streamed:
-            segments.append(followup)
-        return "\n".join(seg for seg in segments if seg)
+        try:
+            exec_output, streamed = _execute_once(self, command)
+            if exec_output and not streamed:
+                segments.append(exec_output)
+            followup_prompt = self._build_followup_prompt(command, exec_output)
+            followup = self._llm_turn(followup_prompt)
+            if followup and not self.state.last_answer_streamed:
+                segments.append(followup)
+            return "\n".join(seg for seg in segments if seg)
+        finally:
+            if loop_started:
+                depth = getattr(self.state, "auto_loop_depth", 0) or 0
+                new_depth = depth - 1
+                if new_depth < 0:
+                    new_depth = 0
+                self.state.auto_loop_depth = new_depth
+                if new_depth == 0:
+                    self._emit_chat_event({"type": "auto_loop_state", "active": False})
 
     def _build_followup_prompt(self, command: str, exec_output: str) -> str:
         plain = strip_ansi(exec_output or "")
@@ -212,7 +258,7 @@ class CopilotOrchestrator:
             parts.append(color_text(explanation, "green", enable=colors))
         parts.append("Proposed debugger command:")
         label = (getattr(self.backend, "name", "debugger") or "debugger")
-        parts.append(_prefix_dbg_echo(command, label=label, colors=colors))
+        parts.append(_prefix_dbg_echo(command, self.backend, colors=colors))
         parts.append("Run it? (y(es)/n(o)/a(uto yes))")
         proposal = {
             "type": "command_proposal",
@@ -221,7 +267,7 @@ class CopilotOrchestrator:
         }
         if explanation:
             proposal["explanation"] = strip_ansi(explanation)
-        self.state.pending_chat_events.append(proposal)
+        self._emit_chat_event(proposal)
         return "\n".join(parts)
 
     def _extract_explanation(self, raw_answer: str) -> str:
@@ -372,7 +418,7 @@ class CopilotOrchestrator:
                                 confirm = self._format_confirmation_prompt(answer, exec_cmd)
                                 segments = [notice, confirm] if notice else [confirm]
                                 return "\n".join(seg for seg in segments if seg)
-                            result = self._execute_with_followup(exec_cmd, preface=display_text or None)
+                            result = self._execute_with_followup(exec_cmd, preface=display_text or None, auto_loop=True)
                             if notice:
                                 segments = [result, notice]
                                 return "\n".join(seg for seg in segments if seg)
@@ -598,8 +644,13 @@ def _format_confirmation_message(cmds: List[str], colors: bool = True) -> str:
     return f"I plan to run:\n{body}\nConfirm? (yes/no)"
 
 
-def _prefix_dbg_echo(cmd: str, label: str = "gdb", colors: bool = True) -> str:
-    line = f"{label}> {cmd}"
+def _prefix_dbg_echo(cmd: str, backend: Any, colors: bool = True) -> str:
+    prompt = getattr(backend, "prompt", None)
+    if prompt:
+        line = f"{prompt} {cmd}".rstrip()
+    else:
+        label = getattr(backend, "name", "debugger") or "debugger"
+        line = f"{label}> {cmd}"
     return color_text(line, "cyan", bold=True, enable=True) if colors else line
 
 
@@ -619,8 +670,7 @@ def _call_llm(provider_name: str, question: str, state: SessionState) -> str:
 def _execute_and_format(backend: Any, cmd: str, colors: bool) -> str:
     try:
         out = backend.run_command(cmd)
-        label = getattr(backend, "name", "debugger") or "debugger"
-        echoed = _prefix_dbg_echo(cmd, label=label, colors=colors)
+        echoed = _prefix_dbg_echo(cmd, backend, colors=colors)
         full = f"{echoed}\n{out}" if out else echoed
         return full
     except Exception as e:

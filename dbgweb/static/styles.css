@@ -368,7 +368,7 @@ body {
   width: 100%;
   height: 100%;
   padding: 0.75rem;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
 }
 
 .terminal .xterm-viewport {
@@ -386,6 +386,7 @@ body {
   flex: 1;
   overflow-y: auto;
   font-family: "Fira Mono", "Courier New", monospace;
+  font-size: 0.75rem;
   background-color: #1b1b1b;
   border: 1px solid #333;
   border-radius: 3px;
@@ -420,6 +421,7 @@ body {
   border: 1px solid #333;
   border-radius: 3px;
   font-family: "Fira Mono", "Courier New", monospace;
+  font-size: 0.75rem;
 }
 
 .terminal-fallback-input-line:focus-within {
@@ -935,9 +937,34 @@ body {
   color: #c5c5c5;
 }
 
+.model-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.model-control select,
+.model-control input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .chat-config-body select,
 .chat-config-body input {
   width: 100%;
+}
+
+.chat-input textarea.is-disabled {
+  opacity: 0.6;
+}
+
+.chat-send-button[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.chat-auto-approve input[disabled] + span {
+  opacity: 0.6;
 }
 
 .pane::-webkit-scrollbar,

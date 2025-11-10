@@ -767,7 +767,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                 else:
                     label = getattr(BACKEND, "name", "debugger") or "debugger"
                     s = _ensure_session()
-                    line = f"{label}> {arg}"
+                    prompt = getattr(BACKEND, "prompt", "") or ""
+                    if prompt:
+                        line = f"{prompt.rstrip()} {arg}".rstrip()
+                    else:
+                        line = f"{label}> {arg}"
                     _echo(color_text(line, "cyan", bold=True, enable=True) if s.colors_enabled else line)
                     try:
                         out = BACKEND.run_command(arg)

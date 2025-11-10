@@ -12,6 +12,7 @@ const chatConfigClose = document.getElementById("chat-config-close");
 const providerSelectTrigger = document.getElementById("provider-select-trigger");
 const providerOptionsList = document.getElementById("provider-options");
 const startSessionButton = document.getElementById("start-session");
+const chatSendButton = document.querySelector(".chat-send-button");
 const dividers = document.querySelectorAll(".divider");
 const minPaneWidths = {
   "explorer-pane": 180,
@@ -38,6 +39,61 @@ let providerDropdownOpen = false;
 let providerOptionElements = [];
 const providerPlaceholderText = "Select a provider";
 let desiredAutoApprove = false;
+const modelInput = document.getElementById("model-input");
+const modelSelect = document.getElementById("model-select");
+const modelControl = document.getElementById("model-control");
+const providerDetails = new Map();
+const providerModelCache = new Map();
+const providerModelFetches = new Map();
+const providerModelSelections = new Map();
+let currentProviderId = "";
+let modelControlRequestToken = null;
+let autoLoopActive = false;
+
+function syncAutoApproveState(event) {
+  if (!event || typeof event.enabled === "undefined") {
+    return;
+  }
+  const enabled = Boolean(event.enabled);
+  desiredAutoApprove = enabled;
+  if (autoApproveToggle) {
+    autoApproveToggle.checked = enabled;
+  }
+}
+
+function setChatControlsDisabled(disabled) {
+  if (chatMessage) {
+    chatMessage.disabled = disabled;
+    chatMessage.setAttribute("aria-disabled", disabled ? "true" : "false");
+    chatMessage.classList.toggle("is-disabled", disabled);
+  }
+  if (chatSendButton) {
+    chatSendButton.disabled = disabled;
+    chatSendButton.setAttribute("aria-disabled", disabled ? "true" : "false");
+  }
+  if (autoApproveToggle) {
+    autoApproveToggle.disabled = disabled;
+    autoApproveToggle.setAttribute("aria-disabled", disabled ? "true" : "false");
+    if (!disabled) {
+      autoApproveToggle.checked = desiredAutoApprove;
+    }
+  }
+}
+
+function handleAutoLoopState(event) {
+  const value = event && typeof event.active !== "undefined" ? event.active : event?.enabled;
+  const active = Boolean(value);
+  if (autoLoopActive === active) {
+    return;
+  }
+  autoLoopActive = active;
+  setChatControlsDisabled(active);
+  if (!active && chatMessage && document.activeElement !== chatMessage) {
+    chatMessage.focus();
+  }
+}
+
+setChatControlsDisabled(false);
 
 const api = {
   async getStatus() {
@@ -121,6 +177,14 @@ const api = {
     }
     return resp.json();
   },
+  async getProviderModels(id) {
+    const resp = await fetch(`/api/providers/${encodeURIComponent(id)}/models`);
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`model list request failed: ${resp.status} ${text}`);
+    }
+    return resp.json();
+  },
 };
 
 function setStatus(text, ok = true) {
@@ -160,6 +224,9 @@ function populateProviders(data) {
   }
   providerDropdownOpen = false;
   providerOptionElements = [];
+  providerDetails.clear();
+  providerModelSelections.clear();
+  currentProviderId = "";
   if (!providerSelectWrapper || !providerSelectTooltip) {
     providerSelectWrapper = providerSelect.closest(".select-wrapper");
     providerSelectTooltip = providerSelectWrapper
@@ -189,11 +256,19 @@ function populateProviders(data) {
 
   data.providers.forEach((provider, index) => {
     const description = provider.description || "";
+    const defaultModel = provider.default_model || "";
+    const supportsModelList = Boolean(provider.supports_model_list);
 
     const selectOption = document.createElement("option");
     selectOption.value = provider.id;
     selectOption.textContent = provider.id;
     selectOption.dataset.description = description;
+    if (supportsModelList) {
+      selectOption.dataset.supportsModelList = "true";
+    }
+    if (defaultModel) {
+      selectOption.dataset.defaultModel = defaultModel;
+    }
     providerSelect.appendChild(selectOption);
 
     if (!providerOptionsList) {
@@ -226,12 +301,204 @@ function populateProviders(data) {
     optionItem.addEventListener("keydown", (event) => handleProviderOptionKeydown(event, index));
 
     providerOptionsList.appendChild(optionItem);
-    providerOptionElements.push({ value: provider.id, element: optionItem, description });
+    providerOptionElements.push({
+      value: provider.id,
+      element: optionItem,
+      description,
+      defaultModel,
+      supportsModelList,
+    });
+    providerDetails.set(provider.id, {
+      description,
+      defaultModel,
+      supportsModelList,
+      kind: provider.kind || "",
+    });
   });
 
   const hasPrevious = providerOptionElements.some((item) => item.value === previousValue);
   const initialValue = hasPrevious ? previousValue : providerOptionElements[0]?.value || "";
   selectProvider(initialValue, { closeDropdown: false, silent: true });
+}
+
+function getProviderMeta(providerId) {
+  return providerDetails.get(providerId) || {
+    description: "",
+    defaultModel: "",
+    supportsModelList: false,
+    kind: "",
+  };
+}
+
+function cacheCurrentModelSelection() {
+  if (!currentProviderId) {
+    return;
+  }
+  if (modelSelect && !modelSelect.hidden && !modelSelect.disabled) {
+    providerModelSelections.set(currentProviderId, modelSelect.value || "");
+    return;
+  }
+  if (modelInput && !modelInput.hidden && !modelInput.disabled) {
+    providerModelSelections.set(currentProviderId, modelInput.value || "");
+  }
+}
+
+function setModelControlMode(mode) {
+  if (!modelInput || !modelSelect) {
+    return;
+  }
+  const useSelect = mode === "select";
+  modelSelect.hidden = !useSelect;
+  modelSelect.disabled = !useSelect;
+  modelSelect.setAttribute("aria-hidden", useSelect ? "false" : "true");
+  modelInput.hidden = useSelect;
+  modelInput.disabled = useSelect;
+  modelInput.setAttribute("aria-hidden", useSelect ? "true" : "false");
+  if (modelControl) {
+    modelControl.dataset.mode = useSelect ? "select" : "input";
+  }
+}
+
+async function loadProviderModels(providerId) {
+  if (!providerId) {
+    return [];
+  }
+  if (providerModelCache.has(providerId)) {
+    return providerModelCache.get(providerId) || [];
+  }
+  if (providerModelFetches.has(providerId)) {
+    return providerModelFetches.get(providerId);
+  }
+  const fetchPromise = api
+    .getProviderModels(providerId)
+    .then((data) => {
+      const entries = Array.isArray(data.models) ? data.models : [];
+      const models = entries
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter((item) => item);
+      if (models.length) {
+        providerModelCache.set(providerId, models);
+      } else {
+        providerModelCache.delete(providerId);
+      }
+      return models;
+    })
+    .finally(() => {
+      providerModelFetches.delete(providerId);
+    });
+  providerModelFetches.set(providerId, fetchPromise);
+  return fetchPromise;
+}
+
+async function configureModelControl(providerId, options = {}) {
+  const { silent = false } = options;
+  const token = Symbol("model-control");
+  modelControlRequestToken = token;
+
+  if (!providerId) {
+    setModelControlMode("input");
+    if (modelInput) {
+      modelInput.value = "";
+      modelInput.placeholder = "model id";
+    }
+    currentProviderId = "";
+    return;
+  }
+
+  const meta = getProviderMeta(providerId);
+  const cachedValue = providerModelSelections.get(providerId) || "";
+
+  if (meta.supportsModelList && modelSelect) {
+    setModelControlMode("select");
+    modelSelect.innerHTML = "";
+    const loadingOption = document.createElement("option");
+    loadingOption.value = "";
+    loadingOption.textContent = "Loading models…";
+    loadingOption.disabled = true;
+    loadingOption.selected = true;
+    modelSelect.appendChild(loadingOption);
+    modelSelect.disabled = true;
+
+    try {
+      const models = await loadProviderModels(providerId);
+      if (modelControlRequestToken !== token) {
+        return;
+      }
+      if (!models.length) {
+        throw new Error("no models returned");
+      }
+      modelSelect.innerHTML = "";
+      models.forEach((modelId) => {
+        const option = document.createElement("option");
+        option.value = modelId;
+        option.textContent = modelId;
+        modelSelect.appendChild(option);
+      });
+      let nextValue = cachedValue || meta.defaultModel || models[0] || "";
+      if (nextValue && !models.includes(nextValue)) {
+        nextValue = models[0] || "";
+      }
+      modelSelect.value = nextValue || models[0] || "";
+      providerModelSelections.set(providerId, modelSelect.value);
+      modelSelect.disabled = false;
+      if (modelInput) {
+        modelInput.placeholder = meta.defaultModel || "model id";
+      }
+      currentProviderId = providerId;
+      return;
+    } catch (err) {
+      if (!silent) {
+        console.error(`Model list unavailable for ${providerId}:`, err);
+      }
+      if (modelControlRequestToken !== token) {
+        return;
+      }
+      setModelControlMode("select");
+      if (modelSelect) {
+        modelSelect.innerHTML = "";
+        const fallback = cachedValue || meta.defaultModel || "";
+        const option = document.createElement("option");
+        option.value = fallback;
+        option.textContent = fallback || "model id";
+        modelSelect.appendChild(option);
+        modelSelect.disabled = false;
+        modelSelect.value = fallback;
+        providerModelSelections.set(providerId, fallback);
+      }
+      if (modelInput) {
+        modelInput.placeholder = meta.defaultModel || "model id";
+      }
+      currentProviderId = providerId;
+      return;
+    }
+  }
+
+  setModelControlMode("input");
+  if (modelSelect) {
+    modelSelect.innerHTML = "";
+    modelSelect.disabled = true;
+  }
+  if (modelInput) {
+    const fallback = cachedValue || meta.defaultModel || "";
+    if (!modelInput.value || currentProviderId !== providerId) {
+      modelInput.value = fallback;
+    }
+    modelInput.placeholder = fallback || "model id";
+    providerModelSelections.set(providerId, modelInput.value || "");
+  }
+  currentProviderId = providerId;
+}
+
+function getSelectedModelValue() {
+  if (modelSelect && !modelSelect.hidden && !modelSelect.disabled) {
+    const value = modelSelect.value;
+    return value ? value : null;
+  }
+  if (!modelInput || modelInput.disabled) {
+    return null;
+  }
+  const value = (modelInput.value || "").trim();
+  return value ? value : null;
 }
 
 function showProviderTooltip(description) {
@@ -279,9 +546,13 @@ function selectProvider(value, options = {}) {
     if (shouldCloseDropdown) {
       closeProviderDropdown({ returnFocus: true });
     }
+    configureModelControl("", { silent: true }).catch(() => {});
     return;
   }
 
+  if (currentProviderId && currentProviderId !== match.value) {
+    cacheCurrentModelSelection();
+  }
   providerSelect.value = match.value;
   markSelectedProvider(match.value);
   if (providerSelectTrigger) {
@@ -293,6 +564,9 @@ function selectProvider(value, options = {}) {
   if (shouldCloseDropdown) {
     closeProviderDropdown({ returnFocus: true });
   }
+  configureModelControl(match.value, { silent }).catch((err) => {
+    console.error(`Failed to configure model control for ${match.value}:`, err);
+  });
 }
 
 function handleProviderOptionKeydown(event, index) {
@@ -589,6 +863,43 @@ function writeDebuggerStatus(text) {
   queueTerminalFit();
 }
 
+const MAX_PROMPT_LENGTH = 64;
+
+function isLikelyPromptLine(line) {
+  if (!line) {
+    return false;
+  }
+  const plain = stripAnsiCodes(line).trimEnd();
+  if (!plain) {
+    return false;
+  }
+  if (plain.length > MAX_PROMPT_LENGTH) {
+    return false;
+  }
+  return /[>\)\]\$: ]$/.test(plain);
+}
+
+function splitDebuggerOutput(message) {
+  if (!message) {
+    return { output: "", prompt: null };
+  }
+  const normalized = message.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  if (!lines.length) {
+    return { output: normalized, prompt: null };
+  }
+  const candidate = lines[lines.length - 1];
+  if (!isLikelyPromptLine(candidate)) {
+    return { output: normalized, prompt: null };
+  }
+  const outputLines = lines.slice(0, -1);
+  let output = outputLines.join("\n");
+  if (output && normalized.endsWith(`\n${candidate}`)) {
+    output += "\n";
+  }
+  return { output, prompt: candidate };
+}
+
 function appendDebuggerOutput(text) {
   if (!text) {
     return;
@@ -597,8 +908,23 @@ function appendDebuggerOutput(text) {
   if (!term) {
     return;
   }
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  term.write(normalized.replace(/\n/g, "\r\n"));
+  const { output, prompt } = splitDebuggerOutput(text);
+  if (terminalSupportsKeystream) {
+    const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    term.write(normalized.replace(/\n/g, "\r\n"));
+  } else {
+    const normalizedOutput = output.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    if (normalizedOutput) {
+      term.write(normalizedOutput.replace(/\n/g, "\r\n"));
+    }
+    if (prompt) {
+      const promptLine = `${prompt.replace(/\r\n/g, "\n").replace(/\r/g, "\n")}\n`;
+      term.write(promptLine.replace(/\n/g, "\r\n"));
+    }
+    if (prompt && typeof term.setPrompt === "function") {
+      term.setPrompt(prompt);
+    }
+  }
   queueTerminalFit();
 }
 
@@ -686,6 +1012,9 @@ async function handleProposalAction(entry, value, friendly) {
   try {
     await api.sendChat(sessionId, value);
     appendChatEntry("user", friendly);
+    if (value === "a") {
+      await applyAutoApprove(true, { silent: true });
+    }
     if (status) {
       status.textContent = `You chose: ${friendly}`;
     }
@@ -754,6 +1083,14 @@ function connectWebSockets(id) {
     }
     try {
       const parsed = JSON.parse(message);
+      if (parsed && parsed.type === "auto_loop_state") {
+        handleAutoLoopState(parsed);
+        return;
+      }
+      if (parsed && parsed.type === "auto_approve_state") {
+        syncAutoApproveState(parsed);
+        return;
+      }
       if (parsed && parsed.type === "command_proposal" && parsed.command) {
         appendChatProposal(parsed);
         return;
@@ -765,9 +1102,11 @@ function connectWebSockets(id) {
   });
   chatSocket.addEventListener("open", () => {
     appendChatEntry("assistant", "[chat] connected");
+    handleAutoLoopState({ active: false });
   });
   chatSocket.addEventListener("close", () => {
     appendChatEntry("assistant", "[chat] disconnected");
+    handleAutoLoopState({ active: false });
   });
 }
 
@@ -780,6 +1119,7 @@ function disconnectWebSockets() {
     chatSocket.close();
     chatSocket = null;
   }
+  handleAutoLoopState({ active: false });
 }
 
 function updateSessionControls(active) {
@@ -866,6 +1206,24 @@ if (autoApproveToggle) {
   });
 }
 
+if (modelSelect) {
+  modelSelect.addEventListener("change", () => {
+    if (!currentProviderId) {
+      return;
+    }
+    providerModelSelections.set(currentProviderId, modelSelect.value || "");
+  });
+}
+
+if (modelInput) {
+  modelInput.addEventListener("input", () => {
+    if (!currentProviderId) {
+      return;
+    }
+    providerModelSelections.set(currentProviderId, modelInput.value || "");
+  });
+}
+
 if (providerSelectTrigger) {
   providerSelectTrigger.addEventListener("click", (event) => {
     if (providerSelectTrigger.disabled) {
@@ -934,6 +1292,10 @@ document.addEventListener("keydown", (event) => {
 
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (autoLoopActive) {
+    appendChatEntry("assistant", "[chat] auto-approve running; wait for loop to finish");
+    return;
+  }
   const message = chatMessage.value.trim();
   if (!message) {
     return;
@@ -982,7 +1344,7 @@ startSessionButton.addEventListener("click", async () => {
   const payload = {
     debugger: document.getElementById("debugger-select").value,
     provider: providerSelect.value,
-    model: document.getElementById("model-input").value.trim() || null,
+    model: getSelectedModelValue(),
     api_key: document.getElementById("api-key-input").value.trim() || null,
     program: document.getElementById("program-input").value.trim() || null,
     auto_approve: desiredAutoApprove,
@@ -1489,7 +1851,9 @@ function createFallbackTerminal() {
     window.requestAnimationFrame(focusInput);
   });
 
-  fallbackControls = controls;
+  fallbackControls = {
+    setPrompt,
+  };
   setPrompt("");
   focusInput();
 
@@ -1520,6 +1884,9 @@ function createFallbackTerminal() {
     },
     focus() {
       focusInput();
+    },
+    setPrompt(text) {
+      setPrompt(text);
     },
   };
 }

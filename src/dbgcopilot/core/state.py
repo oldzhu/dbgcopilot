@@ -68,3 +68,5 @@ class SessionState:
     last_answer_streamed: bool = False
     pending_chat_events: List[Dict[str, Any]] = field(default_factory=_new_chat_event_list)
     auto_rounds_remaining: Optional[int] = None
+    auto_loop_depth: int = 0
+    chat_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None

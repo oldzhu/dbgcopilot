@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -21,16 +21,45 @@ async def api_status() -> JSONResponse:
 
 @router.get("/providers")
 async def list_providers() -> JSONResponse:
-    providers = []
+    items: List[Dict[str, Any]] = []
     for name in sorted(provider_registry.list_providers()):
         info = provider_registry.get_provider(name)
-        providers.append(
+        meta = info.meta if info else {}
+        default_model = ""
+        supports_model_list = False
+        kind = ""
+        if info:
+            kind = getattr(info, "kind", "") or meta.get("kind", "")
+            default_model = str(meta.get("default_model") or meta.get("model") or "")
+            supports_model_list = bool(
+                meta.get("supports_model_list")
+                or (getattr(info, "kind", "") == "openrouter")
+            )
+        description = ""
+        if meta:
+            description = meta.get("description") or meta.get("desc") or ""
+        items.append(
             {
                 "id": name,
-                "description": (info.meta.get("desc") if info and info.meta else ""),
+                "description": description,
+                "default_model": default_model,
+                "supports_model_list": supports_model_list,
+                "kind": kind,
             }
         )
-    return JSONResponse({"providers": providers})
+    return JSONResponse({"providers": items})
+
+
+@router.get("/providers/{provider_id}/models")
+async def list_provider_models(provider_id: str) -> JSONResponse:
+    provider = provider_registry.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="provider not found")
+    try:
+        models = provider_registry.list_models(provider_id)
+    except Exception as exc:  # pragma: no cover - depends on external API availability
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse({"models": models})
 
 
 @router.post("/sessions")
@@ -105,7 +134,7 @@ async def set_auto_approve(session_id: str, payload: Dict[str, Any]) -> JSONResp
     except KeyError:
         raise HTTPException(status_code=404, detail="session not found")
     enabled = bool(payload.get("enabled"))
-    session_manager.set_auto_approve(session, enabled)
+    await session_manager.set_auto_approve(session, enabled)
     return JSONResponse({"status": "ok", "enabled": enabled})
 
 
@@ -118,7 +147,7 @@ async def browse_workspace(path: Optional[str] = None) -> JSONResponse:
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
 
-    entries = []
+    entries: List[Dict[str, Any]] = []
     for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
         entries.append(
             {
