@@ -279,6 +279,7 @@ class SessionManager:
                 .replace("\u001b[?2004l", "")
                 .replace("\u001b[?2004h", "")
             )
+        backend_name = getattr(session.debugger_backend, "name", "").lower()
         if raw:
             lines = raw.splitlines()
             if lines:
@@ -306,6 +307,22 @@ class SessionManager:
                     else:
                         lines = lines[1:]
                     break
+            if backend_name == "delve" and lines:
+                prompt_token = re.compile(r"^(?:\x1b\[[0-9;]*m)*(?:delve>|dlv>)\s*", re.IGNORECASE)
+                cleaned: list[str] = []
+                for line in lines:
+                    if not line:
+                        cleaned.append(line)
+                        continue
+                    if line.startswith("(dlv)"):
+                        suffix = line[len("(dlv)") :]
+                        suffix = suffix.lstrip()
+                        suffix = prompt_token.sub("", suffix).lstrip()
+                        cleaned.append("(dlv)" + (f" {suffix}" if suffix else ""))
+                        continue
+                    cleaned_line = prompt_token.sub("", line)
+                    cleaned.append(cleaned_line)
+                lines = cleaned
             raw = "\n".join(lines)
         prompt = self._prompt_text(session)
         if prompt:

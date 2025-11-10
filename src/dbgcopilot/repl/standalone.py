@@ -10,7 +10,7 @@ import uuid
 from typing import Optional, Any, Dict
 
 from dbgcopilot.core.orchestrator import CopilotOrchestrator
-from dbgcopilot.core.state import SessionState, Attempt
+from dbgcopilot.core.state import SessionState, Attempt, resolve_auto_round_limit
 from dbgcopilot.llm import params as _llm_params
 from dbgcopilot.utils.io import color_text
 
@@ -688,7 +688,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                 s = _ensure_session()
                 if choice in {"", "status"}:
                     status = "enabled" if s.auto_accept_commands else "disabled"
-                    _echo(f"Auto-approve is currently {status}. Use /auto on|off to change it.")
+                    detail = ""
+                    if s.auto_accept_commands:
+                        remaining = s.auto_rounds_remaining
+                        if remaining is not None:
+                            detail = f" ({remaining} rounds remaining)"
+                    _echo(f"Auto-approve is currently {status}{detail}. Use /auto on|off to change it.")
                     continue
                 if choice in {"on", "enable", "enabled"}:
                     if s.auto_accept_commands:
@@ -696,7 +701,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                         continue
                     s.auto_accept_commands = True
                     s.config["auto_accept_commands"] = "true"
-                    _echo("Auto-approve enabled: suggested commands will run without prompting.")
+                    limit = resolve_auto_round_limit(s.config)
+                    s.auto_rounds_remaining = limit
+                    _echo(
+                        f"Auto-approve enabled (limit {limit} rounds): suggested commands will run without prompting."
+                    )
                     continue
                 if choice in {"off", "disable", "disabled"}:
                     if not s.auto_accept_commands:
@@ -704,16 +713,21 @@ def main(argv: Optional[list[str]] = None) -> int:
                         continue
                     s.auto_accept_commands = False
                     s.config.pop("auto_accept_commands", None)
+                    s.auto_rounds_remaining = None
                     _echo("Auto-approve disabled: confirmations required before running commands.")
                     continue
                 if choice == "toggle":
-                    s.auto_accept_commands = not s.auto_accept_commands
                     if s.auto_accept_commands:
-                        s.config["auto_accept_commands"] = "true"
-                    else:
+                        s.auto_accept_commands = False
                         s.config.pop("auto_accept_commands", None)
-                    status = "enabled" if s.auto_accept_commands else "disabled"
-                    _echo(f"Auto-approve {status}.")
+                        s.auto_rounds_remaining = None
+                        _echo("Auto-approve disabled.")
+                    else:
+                        s.auto_accept_commands = True
+                        s.config["auto_accept_commands"] = "true"
+                        limit = resolve_auto_round_limit(s.config)
+                        s.auto_rounds_remaining = limit
+                        _echo(f"Auto-approve enabled (limit {limit} rounds).")
                     continue
                 _echo("Usage: /auto [on|off|toggle|status]")
                 continue

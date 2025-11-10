@@ -92,7 +92,7 @@ def _get_cfg(
         model = model or "qwen-turbo"
     elif name == "kimi":
         base_url = base_url or "https://api.moonshot.cn"
-        model = model or "moonshot-v1-8k"
+        model = model or "kimi-k2-0905-preview"
     elif name == "glm":
         base_url = base_url or "https://open.bigmodel.cn/api/paas/v4"
         if not path_override:

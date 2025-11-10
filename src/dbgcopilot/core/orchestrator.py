@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional, List, Any
 import re
-from dbgcopilot.core.state import Attempt, SessionState
+from dbgcopilot.core.state import Attempt, SessionState, resolve_auto_round_limit
 from dbgcopilot.llm import providers
 from dbgcopilot.utils.io import head_tail_truncate, color_text, strip_ansi
 from pathlib import Path
@@ -32,6 +32,42 @@ class CopilotOrchestrator:
         # Load prompt config
         self.prompt_source = "defaults"
         self.prompt_config = self._load_prompt_config()
+
+    # ------------------------------------------------------------------
+    # Auto-approve helpers
+    def _initialize_auto_rounds(self) -> int:
+        limit = resolve_auto_round_limit(self.state.config)
+        self.state.auto_rounds_remaining = limit
+        return limit
+
+    def _clear_auto_rounds(self) -> None:
+        self.state.auto_rounds_remaining = None
+
+    def _disable_auto_mode(self, reason: Optional[str] = None) -> str:
+        self.state.auto_accept_commands = False
+        self.state.config.pop("auto_accept_commands", None)
+        self._clear_auto_rounds()
+        message = reason or "Auto-approve disabled: confirmations required before running commands."
+        colors = getattr(self.state, "colors_enabled", True)
+        return color_text(message, "yellow", enable=colors) if colors else message
+
+    def _reserve_auto_round(self) -> tuple[bool, Optional[str]]:
+        remaining = getattr(self.state, "auto_rounds_remaining", None)
+        if remaining is None:
+            return True, None
+        if remaining <= 0:
+            notice = self._disable_auto_mode(
+                "Auto-approve round limit reached; switching back to manual approvals."
+            )
+            return False, notice
+        remaining -= 1
+        self.state.auto_rounds_remaining = remaining
+        notice = None
+        if remaining == 0:
+            notice = self._disable_auto_mode(
+                "Auto-approve round limit reached; switching back to manual approvals."
+            )
+        return True, notice
 
     def _repo_root(self) -> Path:
         here = Path(__file__).resolve()
@@ -136,8 +172,9 @@ class CopilotOrchestrator:
         if choice in {"a", "auto", "auto yes", "auto-yes"}:
             self.state.auto_accept_commands = True
             self.state.config["auto_accept_commands"] = "true"
+            limit = self._initialize_auto_rounds()
             executed = self._execute_with_followup(cmd)
-            prefix = "Auto-accept enabled for this session."
+            prefix = f"Auto-accept enabled for this session (limit {limit} rounds)."
             return f"{prefix}\n{executed}" if executed else prefix
 
         # Treat any other response (including blank) as skip
@@ -329,7 +366,17 @@ class CopilotOrchestrator:
                     if match:
                         exec_cmd = match.group(1).strip()
                         if auto_mode:
-                            return self._execute_with_followup(exec_cmd, preface=display_text or None)
+                            allowed, notice = self._reserve_auto_round()
+                            if not allowed:
+                                self.state.pending_command = exec_cmd
+                                confirm = self._format_confirmation_prompt(answer, exec_cmd)
+                                segments = [notice, confirm] if notice else [confirm]
+                                return "\n".join(seg for seg in segments if seg)
+                            result = self._execute_with_followup(exec_cmd, preface=display_text or None)
+                            if notice:
+                                segments = [result, notice]
+                                return "\n".join(seg for seg in segments if seg)
+                            return result
                         self.state.pending_command = exec_cmd
                         return self._format_confirmation_prompt(answer, exec_cmd)
 
