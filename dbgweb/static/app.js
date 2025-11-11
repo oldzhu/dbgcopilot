@@ -9,6 +9,8 @@ const autoApproveToggle = document.getElementById("chat-auto-approve");
 const chatConfigButton = document.getElementById("chat-config-button");
 const chatConfigPanel = document.getElementById("chat-config-panel");
 const chatConfigClose = document.getElementById("chat-config-close");
+const chatConfigOkButton = document.getElementById("chat-config-ok");
+const chatConfigCancelButton = document.getElementById("chat-config-cancel");
 const providerSelectTrigger = document.getElementById("provider-select-trigger");
 const providerOptionsList = document.getElementById("provider-options");
 const startSessionButton = document.getElementById("start-session");
@@ -42,6 +44,7 @@ let desiredAutoApprove = false;
 const modelInput = document.getElementById("model-input");
 const modelSelect = document.getElementById("model-select");
 const modelControl = document.getElementById("model-control");
+const apiKeyInput = document.getElementById("api-key-input");
 const providerDetails = new Map();
 const providerModelCache = new Map();
 const providerModelFetches = new Map();
@@ -49,6 +52,12 @@ const providerModelSelections = new Map();
 let currentProviderId = "";
 let modelControlRequestToken = null;
 let autoLoopActive = false;
+let chatConfigBaseline = null;
+let chatConfigDirty = false;
+let suppressChatConfigDirty = false;
+let chatConfigPendingDirty = false;
+let chatConfigActiveOperation = null;
+let suppressNextProposalPrompt = false;
 
 function syncAutoApproveState(event) {
   if (!event || typeof event.enabled === "undefined") {
@@ -94,6 +103,98 @@ function handleAutoLoopState(event) {
 }
 
 setChatControlsDisabled(false);
+setChatConfigDirty(false);
+
+function getChatConfigSnapshot() {
+  const providerValue = providerSelect ? providerSelect.value || "" : "";
+  const modelValue = getSelectedModelValue();
+  const apiKeyValue = apiKeyInput ? apiKeyInput.value || "" : "";
+  return {
+    provider: providerValue,
+    model: modelValue ? String(modelValue) : "",
+    apiKey: apiKeyValue,
+  };
+}
+
+function setChatConfigDirty(flag) {
+  chatConfigDirty = Boolean(flag);
+  chatConfigPendingDirty = chatConfigDirty;
+  if (chatConfigOkButton) {
+    chatConfigOkButton.disabled = !chatConfigDirty;
+    chatConfigOkButton.setAttribute("aria-disabled", chatConfigDirty ? "false" : "true");
+  }
+  if (chatConfigCancelButton) {
+    chatConfigCancelButton.disabled = !chatConfigDirty;
+    chatConfigCancelButton.setAttribute("aria-disabled", chatConfigDirty ? "false" : "true");
+  }
+  if (chatConfigPanel) {
+    chatConfigPanel.dataset.dirty = chatConfigDirty ? "true" : "false";
+  }
+}
+
+async function waitForChatConfigSettled() {
+  if (!chatConfigActiveOperation) {
+    return;
+  }
+  try {
+    await chatConfigActiveOperation;
+  } catch (err) {}
+}
+
+function markChatConfigDirty() {
+  if (suppressChatConfigDirty || !chatConfigBaseline) {
+    return;
+  }
+  const snapshot = getChatConfigSnapshot();
+  const dirty =
+    snapshot.provider !== chatConfigBaseline.provider ||
+    snapshot.model !== chatConfigBaseline.model ||
+    snapshot.apiKey !== chatConfigBaseline.apiKey;
+  if (dirty !== chatConfigDirty) {
+    setChatConfigDirty(dirty);
+  }
+}
+
+async function restoreChatConfigBaseline() {
+  if (!chatConfigBaseline) {
+    setChatConfigDirty(false);
+    return;
+  }
+  suppressChatConfigDirty = true;
+  const providerId = chatConfigBaseline.provider || "";
+  const modelValue = chatConfigBaseline.model || "";
+  if (apiKeyInput) {
+    apiKeyInput.value = chatConfigBaseline.apiKey || "";
+  }
+  providerModelSelections.set(providerId, modelValue);
+  await selectProvider(providerId, { closeDropdown: false, silent: true });
+  if (modelSelect && !modelSelect.hidden && !modelSelect.disabled) {
+    if (modelSelect.value !== modelValue) {
+      modelSelect.value = modelValue;
+    }
+  }
+  if (modelInput && !modelInput.hidden && !modelInput.disabled) {
+    modelInput.value = modelValue;
+  }
+  suppressChatConfigDirty = false;
+  setChatConfigDirty(false);
+}
+
+async function snapshotChatConfig() {
+  await waitForChatConfigSettled();
+  chatConfigBaseline = getChatConfigSnapshot();
+  setChatConfigDirty(false);
+}
+
+async function commitChatConfigChanges() {
+  await snapshotChatConfig();
+  await closeChatConfig({ returnFocus: true, preserveChanges: true });
+}
+
+async function cancelChatConfigChanges() {
+  await restoreChatConfigBaseline();
+  await closeChatConfig({ returnFocus: true, preserveChanges: true });
+}
 
 const api = {
   async getStatus() {
@@ -546,8 +647,20 @@ function selectProvider(value, options = {}) {
     if (shouldCloseDropdown) {
       closeProviderDropdown({ returnFocus: true });
     }
-    configureModelControl("", { silent: true }).catch(() => {});
-    return;
+    const resetPromise = configureModelControl("", { silent: true }).catch(() => {});
+    chatConfigActiveOperation = resetPromise;
+    resetPromise.finally(() => {
+      if (chatConfigActiveOperation === resetPromise) {
+        chatConfigActiveOperation = null;
+      }
+    });
+    if (!silent) {
+      chatConfigPendingDirty = true;
+      resetPromise.finally(() => {
+        markChatConfigDirty();
+      });
+    }
+    return resetPromise;
   }
 
   if (currentProviderId && currentProviderId !== match.value) {
@@ -564,9 +677,22 @@ function selectProvider(value, options = {}) {
   if (shouldCloseDropdown) {
     closeProviderDropdown({ returnFocus: true });
   }
-  configureModelControl(match.value, { silent }).catch((err) => {
+  const configurePromise = configureModelControl(match.value, { silent }).catch((err) => {
     console.error(`Failed to configure model control for ${match.value}:`, err);
   });
+  if (!silent) {
+    chatConfigPendingDirty = true;
+    configurePromise.finally(() => {
+      markChatConfigDirty();
+    });
+  }
+  chatConfigActiveOperation = configurePromise;
+  configurePromise.finally(() => {
+    if (chatConfigActiveOperation === configurePromise) {
+      chatConfigActiveOperation = null;
+    }
+  });
+  return configurePromise;
 }
 
 function handleProviderOptionKeydown(event, index) {
@@ -1081,24 +1207,45 @@ function connectWebSockets(id) {
     if (!message) {
       return;
     }
+    let handled = false;
     try {
       const parsed = JSON.parse(message);
-      if (parsed && parsed.type === "auto_loop_state") {
-        handleAutoLoopState(parsed);
-        return;
-      }
-      if (parsed && parsed.type === "auto_approve_state") {
-        syncAutoApproveState(parsed);
-        return;
-      }
-      if (parsed && parsed.type === "command_proposal" && parsed.command) {
-        appendChatProposal(parsed);
-        return;
+      const type = parsed && parsed.type ? parsed.type : null;
+      switch (type) {
+        case "auto_loop_state":
+          handleAutoLoopState(parsed);
+          handled = true;
+          break;
+        case "auto_approve_state":
+          syncAutoApproveState(parsed);
+          handled = true;
+          break;
+        case "command_proposal":
+          if (parsed && parsed.command) {
+            appendChatProposal(parsed);
+            const manualApprovalRequired = !parsed.auto_approved;
+            suppressNextProposalPrompt = manualApprovalRequired;
+            handled = manualApprovalRequired;
+          }
+          break;
+        default:
+          break;
       }
     } catch (err) {
       // Non-JSON payloads fall back to plain text rendering.
     }
-    appendChatEntry("assistant", message);
+    if (!handled) {
+      if (suppressNextProposalPrompt) {
+        suppressNextProposalPrompt = false;
+        const needsSkip = message.includes("Run it?") || message.includes("Run it? (y(es)/n(o)/a(uto yes))");
+        if (needsSkip) {
+          return;
+        }
+      } else {
+        suppressNextProposalPrompt = false;
+      }
+      appendChatEntry("assistant", message);
+    }
   });
   chatSocket.addEventListener("open", () => {
     appendChatEntry("assistant", "[chat] connected");
@@ -1128,11 +1275,12 @@ function updateSessionControls(active) {
   startSessionButton.setAttribute("aria-pressed", active ? "true" : "false");
 }
 
-function openChatConfig() {
+async function openChatConfig() {
   if (!chatConfigPanel) {
     return;
   }
   closeProviderDropdown({ returnFocus: false });
+  await snapshotChatConfig();
   chatConfigPanel.hidden = false;
   focusWithoutScroll(chatConfigPanel);
   if (chatConfigButton) {
@@ -1140,10 +1288,15 @@ function openChatConfig() {
   }
 }
 
-function closeChatConfig(options = {}) {
-  const { returnFocus = false } = options;
+async function closeChatConfig(options = {}) {
+  const { returnFocus = false, preserveChanges = false } = options;
   if (!chatConfigPanel || chatConfigPanel.hidden) {
     return;
+  }
+  if (!preserveChanges && (chatConfigDirty || chatConfigPendingDirty)) {
+    await restoreChatConfigBaseline();
+  } else {
+    setChatConfigDirty(false);
   }
   chatConfigPanel.hidden = true;
   closeProviderDropdown({ returnFocus: false });
@@ -1156,14 +1309,14 @@ function closeChatConfig(options = {}) {
   hideProviderTooltip();
 }
 
-function toggleChatConfig() {
+async function toggleChatConfig() {
   if (!chatConfigPanel) {
     return;
   }
   if (chatConfigPanel.hidden) {
-    openChatConfig();
+    await openChatConfig();
   } else {
-    closeChatConfig({ returnFocus: true });
+    await closeChatConfig({ returnFocus: true });
   }
 }
 
@@ -1181,12 +1334,32 @@ function focusWithoutScroll(element) {
 if (chatConfigButton) {
   chatConfigButton.addEventListener("click", (event) => {
     event.preventDefault();
-    toggleChatConfig();
+    void toggleChatConfig();
   });
 }
 
 if (chatConfigClose) {
-  chatConfigClose.addEventListener("click", () => closeChatConfig({ returnFocus: true }));
+  chatConfigClose.addEventListener("click", (event) => {
+    event.preventDefault();
+    void closeChatConfig({ returnFocus: true });
+  });
+}
+
+if (chatConfigOkButton) {
+  chatConfigOkButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (chatConfigOkButton.disabled) {
+      return;
+    }
+    void commitChatConfigChanges();
+  });
+}
+
+if (chatConfigCancelButton) {
+  chatConfigCancelButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    void cancelChatConfigChanges();
+  });
 }
 
 if (autoApproveToggle) {
@@ -1208,19 +1381,32 @@ if (autoApproveToggle) {
 
 if (modelSelect) {
   modelSelect.addEventListener("change", () => {
+    chatConfigPendingDirty = true;
     if (!currentProviderId) {
+      markChatConfigDirty();
       return;
     }
     providerModelSelections.set(currentProviderId, modelSelect.value || "");
+    markChatConfigDirty();
   });
 }
 
 if (modelInput) {
   modelInput.addEventListener("input", () => {
+    chatConfigPendingDirty = true;
     if (!currentProviderId) {
+      markChatConfigDirty();
       return;
     }
     providerModelSelections.set(currentProviderId, modelInput.value || "");
+    markChatConfigDirty();
+  });
+}
+
+if (apiKeyInput) {
+  apiKeyInput.addEventListener("input", () => {
+    chatConfigPendingDirty = true;
+    markChatConfigDirty();
   });
 }
 
@@ -1276,7 +1462,7 @@ document.addEventListener("click", (event) => {
   if (clickedInsidePanel || clickedButton) {
     return;
   }
-  closeChatConfig({ returnFocus: false });
+  void closeChatConfig({ returnFocus: false });
 });
 
 document.addEventListener("keydown", (event) => {
@@ -1286,7 +1472,7 @@ document.addEventListener("keydown", (event) => {
       closeProviderDropdown({ returnFocus: true });
       return;
     }
-    closeChatConfig({ returnFocus: true });
+    void closeChatConfig({ returnFocus: true });
   }
 });
 
