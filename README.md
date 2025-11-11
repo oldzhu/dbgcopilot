@@ -2,7 +2,7 @@ Debugger Copilot (POC)
 
 Overview
 --------
-An AI-assisted debugger copilot for GDB (and later LLDB), focused on:
+An AI-assisted debugger copilot for GDB, LLDB, Delve, Radare2, and Python (debugpy), focused on:
 - Summarizing and analyzing command outputs
 - Suggesting next debugging commands
 - Goal-driven planning with human-in-the-loop confirmations
@@ -22,7 +22,7 @@ Current Status
   - `dbgcopilot-plugin-path` prints the installed plugin file path
   - `dbgcopilot-gdb` launches GDB with the package available on `sys.path` and preloads the plugin by default
   - `dbgcopilot` starts a standalone `copilot>` REPL (outside any debugger); pick `/use gdb` to spawn a GDB subprocess
-  - LLDB is supported in the standalone REPL via `/use lldb`; it prefers the LLDB Python API when available and falls back to a subprocess backend otherwise
+  - LLDB (including a Rust-tuned flavor), Delve, Radare2, and Python debugpy backends are available in the standalone REPL via `/use <debugger>`
 - Core scaffolding for orchestrator, state, and a GDB backend; default LLM provider is `openrouter`
 
 Install and Build
@@ -191,6 +191,13 @@ Project Layout
 - `configs/default.yaml` — defaults
 - `tests/` — test stubs
 - `dbgagent/` — standalone autonomous agent package
+- `examples/` — ready-made crash and hang scenarios for C/C++, Python, and Rust
+
+Example Programs
+----------------
+- `examples/crash_demo` — original C crash demo bundled with a Makefile
+- `examples/crash/python`, `examples/hang/python` — Python scripts for exception and hang scenarios
+- `examples/crash/rust`, `examples/hang/rust` — Cargo projects demonstrating a panic/segfault and an infinite loop
 
 LLDB Python API (optional)
 --------------------------

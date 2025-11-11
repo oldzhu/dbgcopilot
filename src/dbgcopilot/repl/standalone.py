@@ -60,8 +60,10 @@ def _print_help() -> str:
             "  /help                      Show this help",
             "  /use gdb                   Select GDB (subprocess backend)",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
+            "  /use lldb-rust             Select LLDB tuned for Rust binaries",
+            "  /use python                Select Python (debugpy backend)",
             "  /use delve                 Select Delve for Go binaries",
-            "  /use radare2              Select radare2 for binary analysis",
+            "  /use radare2               Select radare2 for binary analysis",
             "  /colors on|off             Toggle colored output in REPL and debugger (LLDB/GDB)",
             "  /new                       Start a new copilot session",
             "  /chatlog                   Show chat transcript",
@@ -170,6 +172,52 @@ def _select_radare2() -> str:
     if banner:
         _echo(banner)
     return f"Using radare2 (-q {path})."
+
+
+def _select_python() -> str:
+    global BACKEND, ORCH
+    s = _ensure_session()
+    try:
+        from dbgcopilot.backends.python_debugpy import PythonDebugpyBackend
+    except Exception as exc:
+        return f"Failed to load Python backend (debugpy required): {exc}"
+
+    script = input("Enter path to Python script (optional): ").strip()
+    program = script or None
+
+    try:
+        BACKEND = PythonDebugpyBackend(program=program)
+        BACKEND.initialize_session()
+    except Exception as exc:
+        BACKEND = None
+        return f"Failed to initialize Python backend: {exc}"
+
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    _install_output_sink(s)
+    if program:
+        s.config["program"] = program
+        return f"Using Python (debugpy backend). Script set to {program}"
+    return "Using Python (debugpy backend). Use 'file <script.py>' then 'run' to launch."
+
+
+def _select_lldb_rust() -> str:
+    global BACKEND, ORCH
+    s = _ensure_session()
+    try:
+        from dbgcopilot.backends.lldb_rust import LldbRustBackend
+    except Exception as exc:
+        return f"Failed to load LLDB Rust backend: {exc}"
+
+    try:
+        BACKEND = LldbRustBackend()
+        BACKEND.initialize_session()
+    except Exception as exc:
+        BACKEND = None
+        return f"Failed to start lldb-rust backend: {exc}"
+
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    _install_output_sink(s)
+    return "Using LLDB (rust-friendly subprocess backend)."
 
 
 def _handle_llm(cmd: str) -> str:
@@ -624,7 +672,10 @@ def _select_lldb() -> str:
 
 def main(argv: Optional[list[str]] = None) -> int:
     _ensure_session()
-    _echo("Standalone REPL. Type /help. Choose a debugger with /use <debugger> (gdb|lldb).")
+    _echo(
+        "Standalone REPL. Type /help. Choose a debugger with /use <debugger> "
+        "(gdb|lldb|lldb-rust|python|delve|radare2)."
+    )
     while True:
         try:
             line = input("copilot> ")
@@ -654,12 +705,16 @@ def main(argv: Optional[list[str]] = None) -> int:
                     _echo(_select_gdb())
                 elif choice == "lldb":
                     _echo(_select_lldb())
+                elif choice == "lldb-rust":
+                    _echo(_select_lldb_rust())
+                elif choice == "python":
+                    _echo(_select_python())
                 elif choice == "delve":
                     _echo(_select_delve())
                 elif choice == "radare2":
                     _echo(_select_radare2())
                 else:
-                    _echo("Supported: /use gdb | /use lldb | /use delve | /use radare2")
+                    _echo("Supported: /use gdb | /use lldb | /use lldb-rust | /use python | /use delve | /use radare2")
                 continue
             if verb == "/new":
                 sid = str(uuid.uuid4())[:8]

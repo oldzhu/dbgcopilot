@@ -14,6 +14,7 @@ const chatConfigCancelButton = document.getElementById("chat-config-cancel");
 const providerSelectTrigger = document.getElementById("provider-select-trigger");
 const providerOptionsList = document.getElementById("provider-options");
 const startSessionButton = document.getElementById("start-session");
+const debuggerSelect = document.getElementById("debugger-select");
 const chatSendButton = document.querySelector(".chat-send-button");
 const dividers = document.querySelectorAll(".divider");
 const minPaneWidths = {
@@ -45,6 +46,7 @@ const modelInput = document.getElementById("model-input");
 const modelSelect = document.getElementById("model-select");
 const modelControl = document.getElementById("model-control");
 const apiKeyInput = document.getElementById("api-key-input");
+const programInput = document.getElementById("program-input");
 const providerDetails = new Map();
 const providerModelCache = new Map();
 const providerModelFetches = new Map();
@@ -828,7 +830,9 @@ function renderWorkspace(data) {
         api.getWorkspace(entry.path).then(renderWorkspace).catch(console.error);
       } else {
         selectedProgram = entry.path;
-        document.getElementById("program-input").value = entry.path;
+        if (programInput) {
+          programInput.value = entry.path;
+        }
         renderWorkspace({ ...data, entries: data.entries });
       }
     });
@@ -1345,6 +1349,21 @@ if (chatConfigClose) {
   });
 }
 
+if (debuggerSelect && programInput) {
+  const updateProgramPlaceholder = () => {
+    const value = debuggerSelect.value;
+    let placeholder = "path to binary";
+    if (value === "python") {
+      placeholder = "path to script.py";
+    } else if (value === "lldb-rust") {
+      placeholder = "path to Rust binary";
+    }
+    programInput.placeholder = placeholder;
+  };
+  debuggerSelect.addEventListener("change", updateProgramPlaceholder);
+  updateProgramPlaceholder();
+}
+
 if (chatConfigOkButton) {
   chatConfigOkButton.addEventListener("click", (event) => {
     event.preventDefault();
@@ -1528,20 +1547,33 @@ startSessionButton.addEventListener("click", async () => {
   }
 
   const payload = {
-    debugger: document.getElementById("debugger-select").value,
+    debugger: debuggerSelect ? debuggerSelect.value : "gdb",
     provider: providerSelect.value,
     model: getSelectedModelValue(),
     api_key: document.getElementById("api-key-input").value.trim() || null,
-    program: document.getElementById("program-input").value.trim() || null,
+    program: programInput ? programInput.value.trim() || null : null,
     auto_approve: desiredAutoApprove,
   };
 
-  if (["delve", "radare2"].includes(payload.debugger) && !payload.program) {
+  if (["delve", "radare2", "python", "lldb-rust"].includes(payload.debugger) && !payload.program) {
+    let requirement = "the program field to point to the binary you want to debug.";
+    if (payload.debugger === "python") {
+      requirement = "the program field to point to the Python script you want to debug.";
+    } else if (payload.debugger === "lldb-rust") {
+      requirement = "the program field to point to the compiled Rust binary.";
+    }
+    appendChatEntry("assistant", `[chat] ${payload.debugger} requires ${requirement}`);
+    setStatus(`${payload.debugger}: program path required`, false);
+    startSessionButton.disabled = false;
+    return;
+  }
+
+  if (payload.debugger === "python" && payload.program && !payload.program.endsWith(".py")) {
     appendChatEntry(
       "assistant",
-      `[chat] ${payload.debugger} requires the program field to point to the binary you want to debug.`
+      "[chat] Python debugging expects the program field to point to a .py script."
     );
-    setStatus(`${payload.debugger}: program path required`, false);
+    setStatus("python: script path should end with .py", false);
     startSessionButton.disabled = false;
     return;
   }

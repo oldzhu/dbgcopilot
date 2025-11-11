@@ -222,6 +222,12 @@ class SessionManager:
             return backend
         if debugger == "lldb":
             return self._create_lldb_backend()
+        if debugger == "lldb-rust":
+            from dbgcopilot.backends.lldb_rust import LldbRustBackend
+
+            backend = LldbRustBackend()
+            backend.initialize_session()
+            return backend
         if debugger == "delve":
             if not program:
                 raise ValueError("Delve requires a binary path. Provide one via the program field.")
@@ -236,6 +242,12 @@ class SessionManager:
             from dbgcopilot.backends.radare2_subprocess import Radare2SubprocessBackend
 
             backend = Radare2SubprocessBackend(program=program)
+            backend.initialize_session()
+            return backend
+        if debugger == "python":
+            from dbgcopilot.backends.python_debugpy import PythonDebugpyBackend
+
+            backend = PythonDebugpyBackend(program=program)
             backend.initialize_session()
             return backend
         raise ValueError(f"Unsupported debugger: {debugger}")
@@ -270,12 +282,14 @@ class SessionManager:
         name = getattr(backend, "name", "").lower()
         if name == "gdb":
             return backend.run_command(f"file {program}")
-        if name == "lldb":
+        if name in {"lldb", "lldb-rust"}:
             return backend.run_command(f"file {program}")
         if name == "delve":
             return getattr(backend, "startup_output", "")
         if name == "radare2":
             return getattr(backend, "startup_output", "")
+        if name == "python":
+            return backend.run_command(f"file {program}")
         return None
 
     def _load_corefile_for_backend(self, session: Session, corefile: str) -> Optional[str]:
@@ -283,7 +297,7 @@ class SessionManager:
         name = getattr(backend, "name", "").lower()
         if name == "gdb":
             return backend.run_command(f"core-file {corefile}")
-        if name == "lldb":
+        if name in {"lldb", "lldb-rust"}:
             return backend.run_command(f"target create -c {corefile}")
         return None
 
