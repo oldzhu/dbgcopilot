@@ -16,6 +16,7 @@ from dbgcopilot.backends.gdb_subprocess import GdbSubprocessBackend
 from dbgcopilot.backends.lldb_inprocess import LldbInProcessBackend
 from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
 from dbgcopilot.backends.lldb_api import LldbApiBackend
+from dbgcopilot.backends.java_jdb import JavaJdbBackend
 
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ class SessionManager:
                 state.config["auto_accept_commands"] = "true"
                 state.auto_rounds_remaining = resolve_auto_round_limit(state.config)
             backend_name = getattr(backend, "name", "")
-            if program and backend_name in {"delve", "radare2", "pdb"}:
+            if program and backend_name in {"delve", "radare2", "pdb", "jdb"}:
                 state.config["program"] = program
             orchestrator = CopilotOrchestrator(backend, state)
             session = Session(
@@ -240,6 +241,10 @@ class SessionManager:
             backend = Radare2SubprocessBackend(program=program)
             backend.initialize_session()
             return backend
+        if debugger == "jdb":
+            backend = JavaJdbBackend(program=program)
+            backend.initialize_session()
+            return backend
         if debugger in {"python", "pdb"}:
             from dbgcopilot.backends.python_pdb import PythonPdbBackend
 
@@ -308,6 +313,8 @@ class SessionManager:
             return getattr(backend, "startup_output", "")
         if name in {"python", "pdb"}:
             return backend.run_command(f"file {program}")
+        if name == "jdb":
+            return backend.run_command(f"file {program}")
         return None
 
     def _load_corefile_for_backend(self, session: Session, corefile: str) -> Optional[str]:
@@ -349,6 +356,8 @@ class SessionManager:
                     prompt_variants.extend(["(lldb-rust)", "lldb-rust>"])
                 if backend_name in {"pdb", "python"}:
                     prompt_variants.extend(["(pydb)", "pdb>"])
+                if backend_name == "jdb":
+                    prompt_variants.extend([">", "jdb>"])
                 if backend_name == "radare2":
                     prompt_variants.extend(["radare2>", "(radare2)"])
                 ansi_prefix = r"(?:\x1b\[[0-9;]*m)*"

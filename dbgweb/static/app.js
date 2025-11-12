@@ -1358,6 +1358,8 @@ if (debuggerSelect && programInput) {
       placeholder = "path to script.py";
     } else if (value === "lldb-rust") {
       placeholder = "path to Rust binary";
+    } else if (value === "jdb") {
+      placeholder = "path to .java/.class/.jar or main class";
     }
     programInput.placeholder = placeholder;
   };
@@ -1557,12 +1559,15 @@ startSessionButton.addEventListener("click", async () => {
   };
 
   const isPythonDebugger = payload.debugger === "pdb" || payload.debugger === "python";
-  if ((["delve", "radare2", "lldb-rust"].includes(payload.debugger) || isPythonDebugger) && !payload.program) {
+  const requiresProgram = ["delve", "radare2", "lldb-rust", "jdb"].includes(payload.debugger) || isPythonDebugger;
+  if (requiresProgram && !payload.program) {
     let requirement = "the program field to point to the binary you want to debug.";
     if (isPythonDebugger) {
       requirement = "the program field to point to the Python script you want to debug.";
     } else if (payload.debugger === "lldb-rust") {
       requirement = "the program field to point to the compiled Rust binary.";
+    } else if (payload.debugger === "jdb") {
+      requirement = "the program field to point to a .java/.class/.jar or main class name.";
     }
     appendChatEntry("assistant", `[chat] ${payload.debugger} requires ${requirement}`);
     setStatus(`${payload.debugger}: program path required`, false);

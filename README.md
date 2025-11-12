@@ -2,7 +2,7 @@ Debugger Copilot (POC)
 
 Overview
 --------
-An AI-assisted debugger copilot for GDB, LLDB, Delve, Radare2, and pdb (Python debugger), focused on:
+An AI-assisted debugger copilot for GDB, LLDB, Delve, Radare2, jdb (Java debugger), and pdb (Python debugger), focused on:
 - Summarizing and analyzing command outputs
 - Suggesting next debugging commands
 - Goal-driven planning with human-in-the-loop confirmations
@@ -22,7 +22,7 @@ Current Status
   - `dbgcopilot-plugin-path` prints the installed plugin file path
   - `dbgcopilot-gdb` launches GDB with the package available on `sys.path` and preloads the plugin by default
   - `dbgcopilot` starts a standalone `copilot>` REPL (outside any debugger); pick `/use gdb` to spawn a GDB subprocess
-  - LLDB (including a Rust-tuned flavor), Delve, Radare2, and pdb (Python debugger) backends are available in the standalone REPL via `/use <debugger>`
+  - LLDB (including a Rust-tuned flavor), Delve, Radare2, jdb (Java debugger), and pdb (Python debugger) backends are available in the standalone REPL via `/use <debugger>`
 - Core scaffolding for orchestrator, state, and a GDB backend; default LLM provider is `openrouter`
 
 Install and Build
@@ -197,6 +197,7 @@ Example Programs
 ----------------
 - `examples/crash_demo` — original C crash demo bundled with a Makefile
 - `examples/crash/python`, `examples/hang/python` — Python scripts for exception and hang scenarios (use the Python debugger backend)
+- `examples/crash/java`, `examples/hang/java` — Java programs for panic/hang scenarios (use the jdb backend)
 - `examples/crash/rust`, `examples/hang/rust` — Cargo projects demonstrating a panic/segfault and an infinite loop
 
 LLDB Python API (optional)

@@ -19,6 +19,7 @@ WORKDIR /workspace
 # Base tools; install pytest/pip/venv now. We'll install a newer LLDB below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pytest python3-pip python3-setuptools python3-venv gnupg curl wget ca-certificates \
+    openjdk-21-jdk-headless \
     git make pkg-config \
     && rm -rf /var/lib/apt/lists/*
 

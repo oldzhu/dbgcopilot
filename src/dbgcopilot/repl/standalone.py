@@ -61,6 +61,7 @@ def _print_help() -> str:
             "  /use gdb                   Select GDB (subprocess backend)",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
             "  /use lldb-rust             Select LLDB tuned for Rust binaries",
+            "  /use jdb                   Select jdb (Java debugger backend)",
             "  /use pdb                   Select pdb (Python debugger backend)",
             "  /use delve                 Select Delve for Go binaries",
             "  /use radare2               Select radare2 for binary analysis",
@@ -198,6 +199,32 @@ def _select_pdb() -> str:
         s.config["program"] = program
         return f"Using pdb (Python debugger backend). Script set to {program}"
     return "Using pdb (Python debugger backend). Use 'file <script.py>' then 'run' to launch."
+
+
+def _select_jdb() -> str:
+    global BACKEND, ORCH
+    s = _ensure_session()
+    try:
+        from dbgcopilot.backends.java_jdb import JavaJdbBackend
+    except Exception as exc:
+        return f"Failed to load jdb backend: {exc}"
+
+    target = input("Enter path to .java/.class/.jar or main class (optional): ").strip()
+    program = target or None
+
+    try:
+        BACKEND = JavaJdbBackend(program=program)
+        BACKEND.initialize_session()
+    except Exception as exc:
+        BACKEND = None
+        return f"Failed to initialize jdb backend: {exc}"
+
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    _install_output_sink(s)
+    if program:
+        s.config["program"] = program
+        return f"Using jdb (Java debugger backend). Program set to {program}"
+    return "Using jdb (Java debugger backend). Use 'file <path or MainClass>' then 'run' to launch."
 
 
 def _select_lldb_rust() -> str:
@@ -698,8 +725,8 @@ def _select_lldb() -> str:
 def main(argv: Optional[list[str]] = None) -> int:
     _ensure_session()
     _echo(
-        "Standalone REPL. Type /help. Choose a debugger with /use <debugger> "
-        "(gdb|lldb|lldb-rust|pdb|delve|radare2)."
+    "Standalone REPL. Type /help. Choose a debugger with /use <debugger> "
+    "(gdb|lldb|lldb-rust|jdb|pdb|delve|radare2)."
     )
     while True:
         try:
@@ -734,12 +761,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                     _echo(_select_lldb_rust())
                 elif choice in {"pdb", "python"}:
                     _echo(_select_pdb())
+                elif choice == "jdb":
+                    _echo(_select_jdb())
                 elif choice == "delve":
                     _echo(_select_delve())
                 elif choice == "radare2":
                     _echo(_select_radare2())
                 else:
-                    _echo("Supported: /use gdb | /use lldb | /use lldb-rust | /use pdb | /use delve | /use radare2")
+                    _echo("Supported: /use gdb | /use lldb | /use lldb-rust | /use jdb | /use pdb | /use delve | /use radare2")
                 continue
             if verb == "/new":
                 sid = str(uuid.uuid4())[:8]
