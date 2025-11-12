@@ -25,3 +25,4 @@ wheelhouse/
 
 # Demo build outputs
 examples/bin/
+examples/*/rust/target/
