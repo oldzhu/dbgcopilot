@@ -78,12 +78,14 @@ class JavaJdbBackend:
             resolved = self._resolve_program_path(target)
             self.program = resolved
             self._prepared = None
+            self.close()
             return f"{self._prefix()} program set to {resolved}"
 
         if lower.startswith("classpath "):
             value = cmd[len("classpath ") :].strip()
             self.classpath = value or None
             self._prepared = None
+            self.close()
             return f"{self._prefix()} classpath set to {value}" if value else f"{self._prefix()} classpath cleared"
 
         if lower in {"run", "r"}:
@@ -97,9 +99,6 @@ class JavaJdbBackend:
                     pass
             self.close()
             return f"{self._prefix()} session terminated"
-
-        if not self.child or not self.child.isalive():
-            return f"{self._prefix()} no active session. Use 'run' first."
 
         if lower in {"continue", "c"}:
             return self._send_and_capture("cont", timeout=timeout)
@@ -124,36 +123,11 @@ class JavaJdbBackend:
 
     # ------------------------------------------------------------------
     def _handle_run(self, timeout: float | None = None) -> str:
-        if not self.program:
-            return f"{self._prefix()} no program configured. Use 'file <path>' first."
-
-        try:
-            launch, workdir = self._prepare_launch()
-        except Exception as exc:
-            return f"{self._prefix()} failed to prepare program: {exc}"
-
-        self.close()
-        assert pexpect is not None
-        try:
-            self.child = pexpect.spawn(
-                launch[0],
-                launch[1:],
-                encoding="utf-8",
-                timeout=timeout or self.timeout,
-                cwd=workdir or self.cwd,
-            )
-        except FileNotFoundError as exc:
-            self.child = None
-            return f"{self._prefix()} failed to start jdb: {exc}"
-        except Exception as exc:
-            self.child = None
-            return f"{self._prefix()} failed to launch jdb: {exc}"
-
-        startup = self._expect_prompt()
+        startup = self._ensure_session_started(timeout)
         if not self.child or not self.child.isalive():
             return startup or f"{self._prefix()} session ended"
 
-        run_output = self._send_and_capture("run", timeout=timeout)
+        run_output = self._send_and_capture("run", timeout=timeout, ensure=False)
         pieces: list[str] = []
         if startup:
             pieces.append(startup)
@@ -165,9 +139,15 @@ class JavaJdbBackend:
         if self._prepared:
             return self._prepared
 
-        program = self.program or ""
+        program = (self.program or "").strip()
         command: list[str]
         workdir: Optional[str] = None
+
+        if not program:
+            command = ["jdb"]
+            self._prepared = (command, workdir)
+            return command, workdir
+
         path = Path(program)
 
         if path.is_file():
@@ -188,7 +168,8 @@ class JavaJdbBackend:
             command = ["jdb"]
             if cp:
                 command.extend(["-classpath", cp])
-            command.append(main_class)
+            if main_class:
+                command.append(main_class)
 
         self._prepared = (command, workdir)
         return command, workdir
@@ -253,39 +234,82 @@ class JavaJdbBackend:
             return f"{self._prefix()} failed waiting for jdb prompt: {exc}"
         return (self.child.before or "").strip()
 
-    def _send_and_capture(self, command: str, timeout: float | None = None) -> str:
-        if not self.child or not self.child.isalive():
-            return f"{self._prefix()} session ended"
+    def _send_and_capture(self, command: str, timeout: float | None = None, *, ensure: bool = True) -> str:
+        startup = ""
+        if ensure:
+            startup = self._ensure_session_started(timeout)
+            if not self.child or not self.child.isalive():
+                return startup or f"{self._prefix()} session ended"
+        child = self.child
+        if not child or not child.isalive():
+            return startup or f"{self._prefix()} session ended"
         assert pexpect is not None
         try:
-            self.child.sendline(command)
+            child.sendline(command)
         except Exception as exc:
             return f"{self._prefix()} failed to send command: {exc}"
         try:
-            self.child.expect(self._prompt_re, timeout=timeout or self.timeout)
-            out = self.child.before or ""
-            return self._normalize_output(command, out)
+            child.expect(self._prompt_re, timeout=timeout or self.timeout)
+            out = child.before or ""
+            result = self._normalize_output(command, out)
+            return self._combine_startup(startup, result)
         except pexpect.TIMEOUT:
-            buffer = self.child.before or ""
+            buffer = child.before or ""
             match = self._prompt_re.search(buffer)
             if match:
                 captured = buffer[: match.start()]
-                return self._normalize_output(command, captured)
+                result = self._normalize_output(command, captured)
+                return self._combine_startup(startup, result)
             partial = self._normalize_output(command, buffer)
             if partial:
-                return f"{partial}\n{self._prefix()} timeout waiting for prompt after '{command}'"
-            return f"{self._prefix()} timeout waiting for '{command}'"
+                partial = f"{partial}\n{self._prefix()} timeout waiting for prompt after '{command}'"
+                return self._combine_startup(startup, partial)
+            return self._combine_startup(startup, f"{self._prefix()} timeout waiting for '{command}'")
         except pexpect.EOF:
-            out = self.child.before or ""
+            out = child.before or ""
             self.child = None
             normalized = self._normalize_output(command, out)
-            return normalized or f"{self._prefix()} process exited"
+            merged = self._combine_startup(startup, normalized)
+            return merged or f"{self._prefix()} process exited"
 
     def _normalize_output(self, command: str, captured: str) -> str:
         text = (captured or "").replace("\r\n", "\n").lstrip("\r\n")
         if text.startswith(command):
             text = text[len(command) :].lstrip()
         return text.strip()
+
+    def _ensure_session_started(self, timeout: float | None = None) -> str:
+        if self.child and self.child.isalive():
+            return ""
+        try:
+            launch, workdir = self._prepare_launch()
+        except Exception as exc:
+            return f"{self._prefix()} failed to prepare program: {exc}"
+
+        assert pexpect is not None
+        try:
+            self.child = pexpect.spawn(
+                launch[0],
+                launch[1:],
+                encoding="utf-8",
+                timeout=timeout or self.timeout,
+                cwd=workdir or self.cwd,
+            )
+        except FileNotFoundError as exc:
+            self.child = None
+            return f"{self._prefix()} failed to start jdb: {exc}"
+        except Exception as exc:
+            self.child = None
+            return f"{self._prefix()} failed to launch jdb: {exc}"
+
+        startup = self._expect_prompt()
+        if not self.child or not self.child.isalive():
+            return startup or f"{self._prefix()} session ended"
+        return startup
+
+    def _combine_startup(self, startup: str, text: str) -> str:
+        pieces = [piece for piece in (startup, text) if piece]
+        return "\n".join(pieces)
 
     def _resolve_program_path(self, target: str) -> str:
         path = Path(target)
