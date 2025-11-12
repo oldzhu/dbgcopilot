@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from pathlib import Path
 from typing import Optional, Any, Dict
 
 from dbgcopilot.core.orchestrator import CopilotOrchestrator
@@ -208,9 +209,28 @@ def _select_jdb() -> str:
         return f"Failed to load jdb backend: {exc}"
 
     program = s.config.get("program")
+    classpath = s.config.get("classpath")
+
+    prompt_parts = ["Enter path to .java/.class/.jar or main class"]
+    if classpath:
+        prompt_parts.append(f"[current classpath: {classpath}]")
+    elif program:
+        prompt_parts.append(f"[current program: {program}]")
+    prompt = " ".join(prompt_parts) + ": "
+
+    entry = input(prompt).strip()
+    if entry:
+        resolved_program, resolved_classpath, error = _resolve_jdb_entry(entry)
+        if error:
+            return error
+        program = resolved_program
+        classpath = resolved_classpath
+
+    if not program and not classpath:
+        return "jdb setup requires a class or classpath; selection cancelled."
 
     try:
-        BACKEND = JavaJdbBackend(program=program)
+        BACKEND = JavaJdbBackend(program=program, classpath=classpath)
         BACKEND.initialize_session()
     except Exception as exc:
         BACKEND = None
@@ -220,8 +240,44 @@ def _select_jdb() -> str:
     _install_output_sink(s)
     if program:
         s.config["program"] = program
-        return f"Using jdb (Java debugger backend). Program set to {program}"
-    return "Using jdb (Java debugger backend). Use 'file <path or MainClass>' then 'run' to launch."
+    else:
+        s.config.pop("program", None)
+    if classpath:
+        s.config["classpath"] = classpath
+    else:
+        s.config.pop("classpath", None)
+
+    details: list[str] = ["Using jdb (Java debugger backend)."]
+    if classpath:
+        details.append(f"Classpath: {classpath}")
+    if program:
+        details.append(f"Program: {program}")
+    details.append("Use '/exec run <MainClass>' to launch.")
+    return " ".join(details)
+
+
+def _resolve_jdb_entry(entry: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    path = Path(entry).expanduser()
+    if path.exists():
+        resolved = str(path.resolve())
+        if path.is_dir():
+            return None, resolved, None
+        suffix = path.suffix.lower()
+        if suffix in {".java", ".class", ".jar"}:
+            return resolved, None, None
+        return None, resolved, None
+
+    normalized = entry.strip()
+    if not normalized:
+        return None, None, "Path is empty."
+
+    looks_like_path = any(sep in normalized for sep in ("/", "\\")) or normalized.endswith(
+        (".java", ".class", ".jar")
+    )
+    if looks_like_path:
+        return None, None, f"Path '{entry}' not found."
+
+    return normalized, None, None
 
 
 def _select_lldb_rust() -> str:

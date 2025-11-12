@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -23,7 +24,9 @@ class JavaJdbBackend:
     prompt = "> "
 
     _ANSI_PATTERN = r"(?:\x1b\[[0-9;?]*[ -/]*[@-~])*"
-    _PROMPT_PATTERN = re.compile(rf"{_ANSI_PATTERN}(?:[\w.$<>-]+\[\d+\]\s*)?>\s*")
+    _PROMPT_PATTERN = re.compile(
+        rf"(?:^|\r?\n){_ANSI_PATTERN}(?:>\s*|[A-Za-z0-9.$-]+\[\d+\]\s*)$"
+    )
 
     def __init__(
         self,
@@ -71,25 +74,8 @@ class JavaJdbBackend:
             return ""
 
         lower = cmd.lower()
-        if lower.startswith("file "):
-            target = cmd[5:].strip()
-            if not target:
-                return f"{self._prefix()} provide a path to a .java/.class/.jar or main class"
-            resolved = self._resolve_program_path(target)
-            self.program = resolved
-            self._prepared = None
-            self.close()
-            return f"{self._prefix()} program set to {resolved}"
-
-        if lower.startswith("classpath "):
-            value = cmd[len("classpath ") :].strip()
-            self.classpath = value or None
-            self._prepared = None
-            self.close()
-            return f"{self._prefix()} classpath set to {value}" if value else f"{self._prefix()} classpath cleared"
-
-        if lower in {"run", "r"}:
-            return self._handle_run(timeout=timeout)
+        if lower in {"run", "r"} or lower.startswith("run "):
+            return self._handle_run(cmd, timeout=timeout)
 
         if lower in {"quit", "exit", "q"}:
             if self.child and self.child.isalive():
@@ -122,18 +108,30 @@ class JavaJdbBackend:
         return self._send_and_capture(cmd, timeout=timeout)
 
     # ------------------------------------------------------------------
-    def _handle_run(self, timeout: float | None = None) -> str:
+    def _handle_run(self, command: str = "run", timeout: float | None = None) -> str:
+        normalized, error = self._normalize_run_command(command)
+        if error:
+            return error
+
         startup = self._ensure_session_started(timeout)
         if not self.child or not self.child.isalive():
             return startup or f"{self._prefix()} session ended"
 
-        run_output = self._send_and_capture("run", timeout=timeout, ensure=False)
-        pieces: list[str] = []
-        if startup:
-            pieces.append(startup)
-        if run_output:
-            pieces.append(run_output)
-        return "\n".join(piece for piece in pieces if piece)
+        run_output = self._send_and_capture(
+            normalized,
+            timeout=timeout,
+            ensure=False,
+            post_drain=True,
+        )
+
+        guidance = ""
+        if self._should_suggest_continue(run_output):
+            guidance = (
+                f"{self._prefix()} target is paused after startup; use '/exec cont' "
+                "to resume or inspect threads"
+            )
+
+        return self._combine_startup(startup, run_output, guidance)
 
     def _prepare_launch(self) -> Tuple[list[str], Optional[str]]:
         if self._prepared:
@@ -145,6 +143,8 @@ class JavaJdbBackend:
 
         if not program:
             command = ["jdb"]
+            if self.classpath:
+                command.extend(["-classpath", self.classpath])
             self._prepared = (command, workdir)
             return command, workdir
 
@@ -173,6 +173,24 @@ class JavaJdbBackend:
 
         self._prepared = (command, workdir)
         return command, workdir
+
+    def _normalize_run_command(self, raw: str) -> tuple[str, Optional[str]]:
+        cmd = (raw or "").strip()
+        if not cmd:
+            return "run", None
+
+        parts = cmd.split()
+        verb = parts[0].lower()
+        args = parts[1:]
+
+        if verb not in {"run", "r"}:
+            return "run", None
+
+        normalized = "run"
+        if args:
+            normalized = "run " + " ".join(args)
+
+        return normalized, None
 
     def _prepare_from_java(self, source: Path) -> Tuple[list[str], Optional[str]]:
         src_path = source.resolve()
@@ -234,7 +252,14 @@ class JavaJdbBackend:
             return f"{self._prefix()} failed waiting for jdb prompt: {exc}"
         return (self.child.before or "").strip()
 
-    def _send_and_capture(self, command: str, timeout: float | None = None, *, ensure: bool = True) -> str:
+    def _send_and_capture(
+        self,
+        command: str,
+        timeout: float | None = None,
+        *,
+        ensure: bool = True,
+        post_drain: bool = False,
+    ) -> str:
         startup = ""
         if ensure:
             startup = self._ensure_session_started(timeout)
@@ -248,10 +273,15 @@ class JavaJdbBackend:
             child.sendline(command)
         except Exception as exc:
             return f"{self._prefix()} failed to send command: {exc}"
+        timeout_value = timeout or self.timeout
         try:
-            child.expect(self._prompt_re, timeout=timeout or self.timeout)
+            child.expect(self._prompt_re, timeout=timeout_value)
             out = child.before or ""
             result = self._normalize_output(command, out)
+            if post_drain:
+                drained = self._drain_additional_output(timeout_value)
+                if drained:
+                    result = self._combine_startup(result, drained)
             return self._combine_startup(startup, result)
         except pexpect.TIMEOUT:
             buffer = child.before or ""
@@ -259,6 +289,10 @@ class JavaJdbBackend:
             if match:
                 captured = buffer[: match.start()]
                 result = self._normalize_output(command, captured)
+                if post_drain:
+                    drained = self._drain_additional_output(timeout_value)
+                    if drained:
+                        result = self._combine_startup(result, drained)
                 return self._combine_startup(startup, result)
             partial = self._normalize_output(command, buffer)
             if partial:
@@ -269,7 +303,10 @@ class JavaJdbBackend:
             out = child.before or ""
             self.child = None
             normalized = self._normalize_output(command, out)
-            merged = self._combine_startup(startup, normalized)
+            drained = ""
+            if post_drain:
+                drained = self._drain_additional_output(timeout_value)
+            merged = self._combine_startup(startup, normalized, drained)
             return merged or f"{self._prefix()} process exited"
 
     def _normalize_output(self, command: str, captured: str) -> str:
@@ -307,16 +344,64 @@ class JavaJdbBackend:
             return startup or f"{self._prefix()} session ended"
         return startup
 
-    def _combine_startup(self, startup: str, text: str) -> str:
-        pieces = [piece for piece in (startup, text) if piece]
-        return "\n".join(pieces)
+    def _drain_additional_output(self, timeout: float | None) -> str:
+        child = self.child
+        if not child or not child.isalive():
+            return ""
+        assert pexpect is not None
 
-    def _resolve_program_path(self, target: str) -> str:
-        path = Path(target)
-        if path.exists():
-            return str(path.resolve())
-        # allow plain class names without files
-        return target
+        base_timeout = timeout or self.timeout
+        max_wait = max(1.0, min(base_timeout, 5.0))
+        deadline = time.monotonic() + max_wait
+
+        pieces: list[str] = []
+        captured_output = False
+
+        while time.monotonic() < deadline:
+            remaining = max(deadline - time.monotonic(), 0.1)
+            try:
+                child.expect(self._prompt_re, timeout=remaining)
+            except pexpect.TIMEOUT:
+                break
+            except pexpect.EOF:
+                extra = child.before or ""
+                self.child = None
+                normalized = self._normalize_output("", extra)
+                if normalized:
+                    pieces.append(normalized)
+                break
+            except Exception:
+                break
+            else:
+                extra = child.before or ""
+                normalized = self._normalize_output("", extra)
+                if normalized:
+                    pieces.append(normalized)
+                    deadline = max(deadline, time.monotonic() + 0.2)
+                    captured_output = True
+                else:
+                    if captured_output:
+                        break
+
+        return "\n".join(piece for piece in pieces if piece)
+
+    def _combine_startup(self, *pieces: str) -> str:
+        return "\n".join(piece for piece in pieces if piece)
+
+    def _should_suggest_continue(self, output: str) -> bool:
+        if not output:
+            return False
+        lowered = output.lower()
+        known_markers = (
+            "vm started",
+            "exception occurred",
+            "application exited",
+            "breakpoint hit",
+            "vm already running",
+        )
+        if any(marker in lowered for marker in known_markers):
+            return False
+        return "set uncaught" in lowered or "set deferred" in lowered
 
     # ------------------------------------------------------------------
     def __del__(self) -> None:  # pragma: no cover - defensive cleanup
