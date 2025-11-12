@@ -183,8 +183,7 @@ def _select_pdb() -> str:
     except Exception as exc:
         return f"Failed to load Python debugger backend: {exc}"
 
-    script = input("Enter path to Python script (optional): ").strip()
-    program = script or None
+    program = s.config.get("program")
 
     try:
         BACKEND = PythonPdbBackend(program=program)
@@ -197,7 +196,6 @@ def _select_pdb() -> str:
     _install_output_sink(s)
     if program:
         s.config["program"] = program
-        return f"Using pdb (Python debugger backend). Script set to {program}"
     return "Using pdb (Python debugger backend). Use 'file <script.py>' then 'run' to launch."
 
 
@@ -209,8 +207,7 @@ def _select_jdb() -> str:
     except Exception as exc:
         return f"Failed to load jdb backend: {exc}"
 
-    target = input("Enter path to .java/.class/.jar or main class (optional): ").strip()
-    program = target or None
+    program = s.config.get("program")
 
     try:
         BACKEND = JavaJdbBackend(program=program)
