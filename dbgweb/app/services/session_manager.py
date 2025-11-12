@@ -68,7 +68,7 @@ class SessionManager:
                 state.config["auto_accept_commands"] = "true"
                 state.auto_rounds_remaining = resolve_auto_round_limit(state.config)
             backend_name = getattr(backend, "name", "")
-            if program and backend_name in {"delve", "radare2"}:
+            if program and backend_name in {"delve", "radare2", "pdb"}:
                 state.config["program"] = program
             orchestrator = CopilotOrchestrator(backend, state)
             session = Session(
@@ -223,11 +223,7 @@ class SessionManager:
         if debugger == "lldb":
             return self._create_lldb_backend()
         if debugger == "lldb-rust":
-            from dbgcopilot.backends.lldb_rust import LldbRustBackend
-
-            backend = LldbRustBackend()
-            backend.initialize_session()
-            return backend
+            return self._create_lldb_rust_backend()
         if debugger == "delve":
             if not program:
                 raise ValueError("Delve requires a binary path. Provide one via the program field.")
@@ -244,10 +240,10 @@ class SessionManager:
             backend = Radare2SubprocessBackend(program=program)
             backend.initialize_session()
             return backend
-        if debugger == "python":
-            from dbgcopilot.backends.python_debugpy import PythonDebugpyBackend
+        if debugger in {"python", "pdb"}:
+            from dbgcopilot.backends.python_pdb import PythonPdbBackend
 
-            backend = PythonDebugpyBackend(program=program)
+            backend = PythonPdbBackend(program=program)
             backend.initialize_session()
             return backend
         raise ValueError(f"Unsupported debugger: {debugger}")
@@ -277,6 +273,28 @@ class SessionManager:
             logger.warning("LLDB API backend unavailable, using subprocess backend: %s", api_error)
         return backend
 
+    def _create_lldb_rust_backend(self):
+        api_error: Optional[Exception] = None
+        try:
+            from dbgcopilot.backends.lldb_rust_api import LldbRustApiBackend
+
+            backend = LldbRustApiBackend()
+            backend.initialize_session()
+            return backend
+        except Exception as exc:  # pragma: no cover - depends on environment
+            api_error = exc
+
+        from dbgcopilot.backends.lldb_rust import LldbRustBackend
+
+        backend = LldbRustBackend()
+        backend.initialize_session()
+        if api_error:
+            logger.warning(
+                "LLDB Rust API backend unavailable, using subprocess backend: %s",
+                api_error,
+            )
+        return backend
+
     def _load_program_for_backend(self, session: Session, program: str) -> Optional[str]:
         backend = session.debugger_backend
         name = getattr(backend, "name", "").lower()
@@ -288,7 +306,7 @@ class SessionManager:
             return getattr(backend, "startup_output", "")
         if name == "radare2":
             return getattr(backend, "startup_output", "")
-        if name == "python":
+        if name in {"python", "pdb"}:
             return backend.run_command(f"file {program}")
         return None
 
@@ -327,6 +345,10 @@ class SessionManager:
                 if backend_prompt:
                     prompt_variants.append(strip_ansi(backend_prompt).strip().lower())
                 prompt_variants.extend(["(gdb)", "gdb>", "(lldb)", "lldb>"])
+                if backend_name == "lldb-rust":
+                    prompt_variants.extend(["(lldb-rust)", "lldb-rust>"])
+                if backend_name in {"pdb", "python"}:
+                    prompt_variants.extend(["(pydb)", "pdb>"])
                 if backend_name == "radare2":
                     prompt_variants.extend(["radare2>", "(radare2)"])
                 ansi_prefix = r"(?:\x1b\[[0-9;]*m)*"

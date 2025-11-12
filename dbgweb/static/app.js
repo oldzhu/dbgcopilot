@@ -1353,7 +1353,8 @@ if (debuggerSelect && programInput) {
   const updateProgramPlaceholder = () => {
     const value = debuggerSelect.value;
     let placeholder = "path to binary";
-    if (value === "python") {
+    const isPythonDebugger = value === "pdb" || value === "python";
+    if (isPythonDebugger) {
       placeholder = "path to script.py";
     } else if (value === "lldb-rust") {
       placeholder = "path to Rust binary";
@@ -1555,9 +1556,10 @@ startSessionButton.addEventListener("click", async () => {
     auto_approve: desiredAutoApprove,
   };
 
-  if (["delve", "radare2", "python", "lldb-rust"].includes(payload.debugger) && !payload.program) {
+  const isPythonDebugger = payload.debugger === "pdb" || payload.debugger === "python";
+  if ((["delve", "radare2", "lldb-rust"].includes(payload.debugger) || isPythonDebugger) && !payload.program) {
     let requirement = "the program field to point to the binary you want to debug.";
-    if (payload.debugger === "python") {
+    if (isPythonDebugger) {
       requirement = "the program field to point to the Python script you want to debug.";
     } else if (payload.debugger === "lldb-rust") {
       requirement = "the program field to point to the compiled Rust binary.";
@@ -1568,12 +1570,13 @@ startSessionButton.addEventListener("click", async () => {
     return;
   }
 
-  if (payload.debugger === "python" && payload.program && !payload.program.endsWith(".py")) {
+  if (isPythonDebugger && payload.program && !payload.program.endsWith(".py")) {
     appendChatEntry(
       "assistant",
-      "[chat] Python debugging expects the program field to point to a .py script."
+      "[chat] The Python debugger expects the program field to point to a .py script."
     );
-    setStatus("python: script path should end with .py", false);
+    const label = payload.debugger === "pdb" ? "pdb" : "python";
+    setStatus(`${label}: script path should end with .py`, false);
     startSessionButton.disabled = false;
     return;
   }

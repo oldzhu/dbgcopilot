@@ -61,7 +61,7 @@ def _print_help() -> str:
             "  /use gdb                   Select GDB (subprocess backend)",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
             "  /use lldb-rust             Select LLDB tuned for Rust binaries",
-            "  /use python                Select Python (debugpy backend)",
+            "  /use pdb                   Select pdb (Python debugger backend)",
             "  /use delve                 Select Delve for Go binaries",
             "  /use radare2               Select radare2 for binary analysis",
             "  /colors on|off             Toggle colored output in REPL and debugger (LLDB/GDB)",
@@ -174,50 +174,75 @@ def _select_radare2() -> str:
     return f"Using radare2 (-q {path})."
 
 
-def _select_python() -> str:
+def _select_pdb() -> str:
     global BACKEND, ORCH
     s = _ensure_session()
     try:
-        from dbgcopilot.backends.python_debugpy import PythonDebugpyBackend
+        from dbgcopilot.backends.python_pdb import PythonPdbBackend
     except Exception as exc:
-        return f"Failed to load Python backend (debugpy required): {exc}"
+        return f"Failed to load Python debugger backend: {exc}"
 
     script = input("Enter path to Python script (optional): ").strip()
     program = script or None
 
     try:
-        BACKEND = PythonDebugpyBackend(program=program)
+        BACKEND = PythonPdbBackend(program=program)
         BACKEND.initialize_session()
     except Exception as exc:
         BACKEND = None
-        return f"Failed to initialize Python backend: {exc}"
+        return f"Failed to initialize Python debugger backend: {exc}"
 
     ORCH = CopilotOrchestrator(BACKEND, s)
     _install_output_sink(s)
     if program:
         s.config["program"] = program
-        return f"Using Python (debugpy backend). Script set to {program}"
-    return "Using Python (debugpy backend). Use 'file <script.py>' then 'run' to launch."
+        return f"Using pdb (Python debugger backend). Script set to {program}"
+    return "Using pdb (Python debugger backend). Use 'file <script.py>' then 'run' to launch."
 
 
 def _select_lldb_rust() -> str:
     global BACKEND, ORCH
     s = _ensure_session()
-    try:
-        from dbgcopilot.backends.lldb_rust import LldbRustBackend
-    except Exception as exc:
-        return f"Failed to load LLDB Rust backend: {exc}"
+    api_error: Optional[Exception] = None
+    backend_label = "LLDB (rust-friendly API backend)."
 
     try:
-        BACKEND = LldbRustBackend()
+        from dbgcopilot.backends.lldb_rust_api import LldbRustApiBackend
+
+        BACKEND = LldbRustApiBackend()
         BACKEND.initialize_session()
-    except Exception as exc:
+    except Exception as exc_api:
+        api_error = exc_api
         BACKEND = None
-        return f"Failed to start lldb-rust backend: {exc}"
+
+    if BACKEND is None:
+        backend_label = "LLDB (rust-friendly subprocess backend)."
+        try:
+            from dbgcopilot.backends.lldb_rust import LldbRustBackend
+        except Exception as exc:
+            detail = f"Failed to load LLDB Rust backend: {exc}"
+            if api_error:
+                detail += f"\nAlso failed to load API backend: {api_error}"
+            return detail
+
+        try:
+            BACKEND = LldbRustBackend()
+            BACKEND.initialize_session()
+        except Exception as exc:
+            BACKEND = None
+            detail = f"Failed to start lldb-rust backend: {exc}"
+            if api_error:
+                detail += f"\nAlso failed to start API backend: {api_error}"
+            return detail
+        if api_error:
+            backend_label += f" (API backend unavailable: {api_error})"
+    elif api_error:
+        # API succeeded; clear error to avoid stale reference.
+        api_error = None
 
     ORCH = CopilotOrchestrator(BACKEND, s)
     _install_output_sink(s)
-    return "Using LLDB (rust-friendly subprocess backend)."
+    return f"Using {backend_label}"
 
 
 def _handle_llm(cmd: str) -> str:
@@ -674,7 +699,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     _ensure_session()
     _echo(
         "Standalone REPL. Type /help. Choose a debugger with /use <debugger> "
-        "(gdb|lldb|lldb-rust|python|delve|radare2)."
+        "(gdb|lldb|lldb-rust|pdb|delve|radare2)."
     )
     while True:
         try:
@@ -707,14 +732,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                     _echo(_select_lldb())
                 elif choice == "lldb-rust":
                     _echo(_select_lldb_rust())
-                elif choice == "python":
-                    _echo(_select_python())
+                elif choice in {"pdb", "python"}:
+                    _echo(_select_pdb())
                 elif choice == "delve":
                     _echo(_select_delve())
                 elif choice == "radare2":
                     _echo(_select_radare2())
                 else:
-                    _echo("Supported: /use gdb | /use lldb | /use lldb-rust | /use python | /use delve | /use radare2")
+                    _echo("Supported: /use gdb | /use lldb | /use lldb-rust | /use pdb | /use delve | /use radare2")
                 continue
             if verb == "/new":
                 sid = str(uuid.uuid4())[:8]
