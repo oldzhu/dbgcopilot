@@ -69,6 +69,9 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
     if not required or not provider:
         raise HTTPException(status_code=400, detail="debugger and provider are required")
     program = payload.get("program")
+    classpath = payload.get("classpath")
+    sourcepath = payload.get("sourcepath")
+    main_class = payload.get("main_class")
     corefile = payload.get("corefile")
     model = payload.get("model")
     api_key = payload.get("api_key")
@@ -80,8 +83,10 @@ async def create_session(payload: Dict[str, Any]) -> JSONResponse:
             provider=provider,
             model=model,
             api_key=api_key,
-            program=program,
+            program=main_class or program,
             corefile=corefile,
+            classpath=classpath,
+            sourcepath=sourcepath,
             auto_approve=auto_approve,
         )
     except ValueError as exc:

@@ -33,10 +33,12 @@ class JavaJdbBackend:
         program: Optional[str] = None,
         classpath: Optional[str] = None,
         cwd: Optional[str] = None,
+        sourcepath: Optional[str] = None,
         timeout: float = 10.0,
     ) -> None:
         self.program = program
         self.classpath = classpath
+        self.sourcepath = sourcepath
         self.cwd = cwd
         self.timeout = timeout
         self.child: Optional[Any] = None
@@ -145,6 +147,8 @@ class JavaJdbBackend:
             command = ["jdb"]
             if self.classpath:
                 command.extend(["-classpath", self.classpath])
+            if self.sourcepath:
+                command.extend(["-sourcepath", self.sourcepath])
             self._prepared = (command, workdir)
             return command, workdir
 
@@ -158,6 +162,8 @@ class JavaJdbBackend:
                 command, workdir = self._prepare_from_class(path)
             elif suffix == ".jar":
                 command = ["jdb", "-jar", str(path.resolve())]
+                if self.sourcepath:
+                    command.extend(["-sourcepath", self.sourcepath])
                 workdir = path.parent.as_posix()
             else:
                 raise ValueError(f"Unsupported file type: {path.suffix}")
@@ -168,6 +174,8 @@ class JavaJdbBackend:
             command = ["jdb"]
             if cp:
                 command.extend(["-classpath", cp])
+            if self.sourcepath:
+                command.extend(["-sourcepath", self.sourcepath])
             if main_class:
                 command.append(main_class)
 
@@ -212,6 +220,8 @@ class JavaJdbBackend:
             main_class = f"{package}.{main_class}"
         cp = self.classpath or compile_dir.as_posix()
         cmd = ["jdb", "-classpath", cp, main_class]
+        if self.sourcepath:
+            cmd.extend(["-sourcepath", self.sourcepath])
         return cmd, compile_dir.as_posix()
 
     def _prepare_from_class(self, compiled: Path) -> Tuple[list[str], Optional[str]]:
@@ -222,6 +232,8 @@ class JavaJdbBackend:
         main_class = class_file.stem
         cp = self.classpath or class_dir.as_posix()
         cmd = ["jdb", "-classpath", cp, main_class]
+        if self.sourcepath:
+            cmd.extend(["-sourcepath", self.sourcepath])
         return cmd, class_dir.as_posix()
 
     def _detect_package(self, source: Path) -> Optional[str]:

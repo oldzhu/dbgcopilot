@@ -22,6 +22,13 @@ BACKEND: Optional[Any] = None
 ORCH: Optional[CopilotOrchestrator] = None
 
 
+def _validate_path(path_input: str) -> tuple[str, Optional[str]]:
+    candidate = Path(path_input).expanduser()
+    if not candidate.exists():
+        return "", f"Path '{path_input}' not found."
+    return str(candidate.resolve()), None
+
+
 def _ensure_session() -> SessionState:
     global SESSION
     if SESSION is None:
@@ -208,29 +215,52 @@ def _select_jdb() -> str:
     except Exception as exc:
         return f"Failed to load jdb backend: {exc}"
 
-    program = s.config.get("program")
     classpath = s.config.get("classpath")
+    sourcepath = s.config.get("sourcepath")
+    main_class = s.config.get("jdb_main_class")
 
-    prompt_parts = ["Enter path to .java/.class/.jar or main class"]
+    class_prompt = "Enter class path to .class/.jar (required)"
     if classpath:
-        prompt_parts.append(f"[current classpath: {classpath}]")
-    elif program:
-        prompt_parts.append(f"[current program: {program}]")
-    prompt = " ".join(prompt_parts) + ": "
+        class_prompt += f" [current: {classpath}]"
+    class_prompt += ": "
 
-    entry = input(prompt).strip()
-    if entry:
-        resolved_program, resolved_classpath, error = _resolve_jdb_entry(entry)
-        if error:
-            return error
-        program = resolved_program
-        classpath = resolved_classpath
+    entered_classpath = input(class_prompt).strip()
+    if not entered_classpath:
+        if not classpath:
+            return "jdb setup requires a classpath; selection cancelled."
+    else:
+        classpath_valid, classpath_error = _validate_path(entered_classpath)
+        if classpath_error:
+            return classpath_error
+        classpath = classpath_valid
 
-    if not program and not classpath:
-        return "jdb setup requires a class or classpath; selection cancelled."
+    if not classpath:
+        return "jdb setup requires a classpath; selection cancelled."
+
+    source_prompt = "Enter source path to .java (optional)"
+    if sourcepath:
+        source_prompt += f" [current: {sourcepath}]"
+    source_prompt += ": "
+
+    entered_source = input(source_prompt).strip()
+    if entered_source:
+        source_valid, source_error = _validate_path(entered_source)
+        if source_error:
+            return source_error
+        sourcepath = source_valid
+
+    main_prompt = "Enter Main class (optional)"
+    if main_class:
+        main_prompt += f" [current: {main_class}]"
+    main_prompt += ": "
+    entered_main = input(main_prompt).strip()
+    if entered_main:
+        main_class = entered_main
+
+    program = main_class or None
 
     try:
-        BACKEND = JavaJdbBackend(program=program, classpath=classpath)
+        BACKEND = JavaJdbBackend(program=program, classpath=classpath, sourcepath=sourcepath)
         BACKEND.initialize_session()
     except Exception as exc:
         BACKEND = None
@@ -238,46 +268,29 @@ def _select_jdb() -> str:
 
     ORCH = CopilotOrchestrator(BACKEND, s)
     _install_output_sink(s)
-    if program:
-        s.config["program"] = program
-    else:
-        s.config.pop("program", None)
+    s.config.pop("program", None)
     if classpath:
         s.config["classpath"] = classpath
     else:
         s.config.pop("classpath", None)
+    if sourcepath:
+        s.config["sourcepath"] = sourcepath
+    else:
+        s.config.pop("sourcepath", None)
+    if main_class:
+        s.config["jdb_main_class"] = main_class
+    else:
+        s.config.pop("jdb_main_class", None)
 
     details: list[str] = ["Using jdb (Java debugger backend)."]
     if classpath:
         details.append(f"Classpath: {classpath}")
-    if program:
-        details.append(f"Program: {program}")
+    if sourcepath:
+        details.append(f"Sourcepath: {sourcepath}")
+    if main_class:
+        details.append(f"Main class: {main_class}")
     details.append("Use '/exec run <MainClass>' to launch.")
     return " ".join(details)
-
-
-def _resolve_jdb_entry(entry: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    path = Path(entry).expanduser()
-    if path.exists():
-        resolved = str(path.resolve())
-        if path.is_dir():
-            return None, resolved, None
-        suffix = path.suffix.lower()
-        if suffix in {".java", ".class", ".jar"}:
-            return resolved, None, None
-        return None, resolved, None
-
-    normalized = entry.strip()
-    if not normalized:
-        return None, None, "Path is empty."
-
-    looks_like_path = any(sep in normalized for sep in ("/", "\\")) or normalized.endswith(
-        (".java", ".class", ".jar")
-    )
-    if looks_like_path:
-        return None, None, f"Path '{entry}' not found."
-
-    return normalized, None, None
 
 
 def _select_lldb_rust() -> str:

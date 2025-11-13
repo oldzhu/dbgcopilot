@@ -49,11 +49,20 @@ class SessionManager:
         api_key: Optional[str],
         program: Optional[str],
         corefile: Optional[str],
+        *,
+        classpath: Optional[str] = None,
+        sourcepath: Optional[str] = None,
         auto_approve: bool = False,
     ) -> tuple[Session, list[str]]:
         async with self._lock:
             session_id = uuid.uuid4().hex[:8]
-            backend = self._create_backend(debugger, program=program, corefile=corefile)
+            backend = self._create_backend(
+                debugger,
+                program=program,
+                corefile=corefile,
+                classpath=classpath,
+                sourcepath=sourcepath,
+            )
             state = SessionState(session_id=session_id)
             state.provider_name = provider
             state.model_override = model
@@ -69,7 +78,14 @@ class SessionManager:
                 state.config["auto_accept_commands"] = "true"
                 state.auto_rounds_remaining = resolve_auto_round_limit(state.config)
             backend_name = getattr(backend, "name", "")
-            if program and backend_name in {"delve", "radare2", "pdb", "jdb"}:
+            if debugger == "jdb":
+                if classpath:
+                    state.config["classpath"] = classpath
+                if sourcepath:
+                    state.config["sourcepath"] = sourcepath
+                if program:
+                    state.config["jdb_main_class"] = program
+            elif program and backend_name in {"delve", "radare2", "pdb"}:
                 state.config["program"] = program
             orchestrator = CopilotOrchestrator(backend, state)
             session = Session(
@@ -112,7 +128,7 @@ class SessionManager:
             state.chat_event_sink = emit_chat_event
             self.sessions[session_id] = session
             initial_messages: list[str] = []
-            if program:
+            if program and backend_name not in {"jdb"}:
                 init_output = await asyncio.to_thread(self._load_program_for_backend, session, program)
                 if init_output:
                     formatted = self._format_debugger_output(session, init_output)
@@ -216,7 +232,15 @@ class SessionManager:
                 await session.debugger_queue.put(formatted)
         return clean_answer
 
-    def _create_backend(self, debugger: str, program: Optional[str], corefile: Optional[str]):
+    def _create_backend(
+        self,
+        debugger: str,
+        program: Optional[str],
+        corefile: Optional[str],
+        *,
+        classpath: Optional[str] = None,
+        sourcepath: Optional[str] = None,
+    ):
         if debugger == "gdb":
             backend = GdbSubprocessBackend()
             backend.initialize_session()
@@ -242,7 +266,11 @@ class SessionManager:
             backend.initialize_session()
             return backend
         if debugger == "jdb":
-            backend = JavaJdbBackend(program=program)
+            backend = JavaJdbBackend(
+                program=program,
+                classpath=classpath,
+                sourcepath=sourcepath,
+            )
             backend.initialize_session()
             return backend
         if debugger in {"python", "pdb"}:
@@ -312,8 +340,6 @@ class SessionManager:
         if name == "radare2":
             return getattr(backend, "startup_output", "")
         if name in {"python", "pdb"}:
-            return backend.run_command(f"file {program}")
-        if name == "jdb":
             return backend.run_command(f"file {program}")
         return None
 

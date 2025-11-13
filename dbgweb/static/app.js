@@ -47,6 +47,11 @@ const modelSelect = document.getElementById("model-select");
 const modelControl = document.getElementById("model-control");
 const apiKeyInput = document.getElementById("api-key-input");
 const programInput = document.getElementById("program-input");
+const classpathInput = document.getElementById("classpath-input");
+const sourcepathInput = document.getElementById("sourcepath-input");
+const mainClassInput = document.getElementById("main-class-input");
+const jdbFields = document.querySelector(".jdb-fields");
+const programLabel = document.querySelector('label[for="program-input"]');
 const providerDetails = new Map();
 const providerModelCache = new Map();
 const providerModelFetches = new Map();
@@ -60,6 +65,7 @@ let suppressChatConfigDirty = false;
 let chatConfigPendingDirty = false;
 let chatConfigActiveOperation = null;
 let suppressNextProposalPrompt = false;
+let selectedPathInput = null;
 
 function syncAutoApproveState(event) {
   if (!event || typeof event.enabled === "undefined") {
@@ -106,6 +112,52 @@ function handleAutoLoopState(event) {
 
 setChatControlsDisabled(false);
 setChatConfigDirty(false);
+
+const isJdbSelected = () => debuggerSelect && debuggerSelect.value === "jdb";
+
+function resolveEntryPath(entry) {
+  if (!entry || typeof entry.path !== "string") {
+    return "";
+  }
+  if (entry.is_dir) {
+    return entry.path || ".";
+  }
+  const parts = entry.path.split("/");
+  parts.pop();
+  return parts.length ? parts.join("/") : ".";
+}
+
+function syncDebuggerPathFromEntry(entry) {
+  if (!isJdbSelected()) {
+    return false;
+  }
+  const target = selectedPathInput && !selectedPathInput.disabled ? selectedPathInput : null;
+  if (!target) {
+    return false;
+  }
+  const resolved = resolveEntryPath(entry);
+  if (!resolved) {
+    return false;
+  }
+  target.value = resolved;
+  return true;
+}
+
+function setSelectedPathInput(input) {
+  if (selectedPathInput === input) {
+    if (selectedPathInput) {
+      selectedPathInput.classList.add("path-input-selected");
+    }
+    return;
+  }
+  if (selectedPathInput) {
+    selectedPathInput.classList.remove("path-input-selected");
+  }
+  selectedPathInput = input && !input.disabled ? input : null;
+  if (selectedPathInput) {
+    selectedPathInput.classList.add("path-input-selected");
+  }
+}
 
 function getChatConfigSnapshot() {
   const providerValue = providerSelect ? providerSelect.value || "" : "";
@@ -827,10 +879,15 @@ function renderWorkspace(data) {
     `;
     li.addEventListener("click", () => {
       if (entry.is_dir) {
-        api.getWorkspace(entry.path).then(renderWorkspace).catch(console.error);
+        syncDebuggerPathFromEntry(entry);
+        api
+          .getWorkspace(entry.path)
+          .then(renderWorkspace)
+          .catch(console.error);
       } else {
         selectedProgram = entry.path;
-        if (programInput) {
+        const synced = syncDebuggerPathFromEntry(entry);
+        if (!synced && !isJdbSelected() && programInput) {
           programInput.value = entry.path;
         }
         renderWorkspace({ ...data, entries: data.entries });
@@ -1349,22 +1406,95 @@ if (chatConfigClose) {
   });
 }
 
-if (debuggerSelect && programInput) {
-  const updateProgramPlaceholder = () => {
+if (debuggerSelect) {
+  const updateDebuggerFields = () => {
     const value = debuggerSelect.value;
-    let placeholder = "path to binary";
     const isPythonDebugger = value === "pdb" || value === "python";
+    const isJdb = value === "jdb";
+    let placeholder = "path to binary";
     if (isPythonDebugger) {
       placeholder = "path to script.py";
     } else if (value === "lldb-rust") {
       placeholder = "path to Rust binary";
-    } else if (value === "jdb") {
-      placeholder = "path to .java/.class/.jar or main class";
     }
-    programInput.placeholder = placeholder;
+
+    if (programInput) {
+      programInput.placeholder = placeholder;
+      programInput.disabled = isJdb;
+      programInput.hidden = isJdb;
+      programInput.setAttribute("aria-hidden", isJdb ? "true" : "false");
+    }
+
+    if (programLabel) {
+      programLabel.hidden = isJdb;
+      programLabel.setAttribute("aria-hidden", isJdb ? "true" : "false");
+    }
+
+    if (jdbFields) {
+      jdbFields.hidden = !isJdb;
+      jdbFields.classList.toggle("visible", isJdb);
+      jdbFields.setAttribute("aria-hidden", isJdb ? "false" : "true");
+    }
+
+    if (classpathInput) {
+      classpathInput.disabled = !isJdb;
+      if (!isJdb) {
+        classpathInput.classList.remove("path-input-selected");
+      }
+    }
+
+    if (sourcepathInput) {
+      sourcepathInput.disabled = !isJdb;
+      if (!isJdb) {
+        sourcepathInput.classList.remove("path-input-selected");
+      }
+    }
+
+    if (mainClassInput) {
+      mainClassInput.disabled = !isJdb;
+    }
+
+    if (!isJdb) {
+      setSelectedPathInput(null);
+    } else if (!selectedPathInput && classpathInput && !classpathInput.disabled) {
+      setSelectedPathInput(classpathInput);
+    }
   };
-  debuggerSelect.addEventListener("change", updateProgramPlaceholder);
-  updateProgramPlaceholder();
+
+  debuggerSelect.addEventListener("change", updateDebuggerFields);
+  updateDebuggerFields();
+}
+
+if (classpathInput) {
+  const handleSelectClasspath = () => {
+    if (!classpathInput.disabled) {
+      setSelectedPathInput(classpathInput);
+    }
+  };
+  classpathInput.addEventListener("focus", handleSelectClasspath);
+  classpathInput.addEventListener("click", handleSelectClasspath);
+}
+
+if (sourcepathInput) {
+  const handleSelectSource = () => {
+    if (!sourcepathInput.disabled) {
+      setSelectedPathInput(sourcepathInput);
+    }
+  };
+  sourcepathInput.addEventListener("focus", handleSelectSource);
+  sourcepathInput.addEventListener("click", handleSelectSource);
+}
+
+if (programInput) {
+  const clearSelection = () => setSelectedPathInput(null);
+  programInput.addEventListener("focus", clearSelection);
+  programInput.addEventListener("click", clearSelection);
+}
+
+if (mainClassInput) {
+  const clearSelection = () => setSelectedPathInput(null);
+  mainClassInput.addEventListener("focus", clearSelection);
+  mainClassInput.addEventListener("click", clearSelection);
 }
 
 if (chatConfigOkButton) {
@@ -1549,38 +1679,65 @@ startSessionButton.addEventListener("click", async () => {
     return;
   }
 
+  const debuggerId = debuggerSelect ? debuggerSelect.value : "gdb";
+  const programValue = programInput ? programInput.value.trim() : "";
+  const classpathValue = classpathInput ? classpathInput.value.trim() : "";
+  const sourcepathValue = sourcepathInput ? sourcepathInput.value.trim() : "";
+  const mainClassValue = mainClassInput ? mainClassInput.value.trim() : "";
+
   const payload = {
-    debugger: debuggerSelect ? debuggerSelect.value : "gdb",
+    debugger: debuggerId,
     provider: providerSelect.value,
     model: getSelectedModelValue(),
     api_key: document.getElementById("api-key-input").value.trim() || null,
-    program: programInput ? programInput.value.trim() || null : null,
+    program: null,
+    classpath: null,
+    sourcepath: null,
+    main_class: null,
     auto_approve: desiredAutoApprove,
   };
 
-  const isPythonDebugger = payload.debugger === "pdb" || payload.debugger === "python";
-  const requiresProgram = ["delve", "radare2", "lldb-rust", "jdb"].includes(payload.debugger) || isPythonDebugger;
-  if (requiresProgram && !payload.program) {
+  const isPythonDebugger = debuggerId === "pdb" || debuggerId === "python";
+  const isJdb = debuggerId === "jdb";
+
+  if (isJdb) {
+    payload.classpath = classpathValue || null;
+    payload.sourcepath = sourcepathValue || null;
+    payload.main_class = mainClassValue || null;
+  } else {
+    payload.program = programValue || null;
+  }
+
+  const requiresProgram = ["delve", "radare2", "lldb-rust"].includes(debuggerId) || isPythonDebugger;
+  if (requiresProgram && !programValue) {
     let requirement = "the program field to point to the binary you want to debug.";
     if (isPythonDebugger) {
       requirement = "the program field to point to the Python script you want to debug.";
-    } else if (payload.debugger === "lldb-rust") {
+    } else if (debuggerId === "lldb-rust") {
       requirement = "the program field to point to the compiled Rust binary.";
-    } else if (payload.debugger === "jdb") {
-      requirement = "the program field to point to a .java/.class/.jar or main class name.";
     }
-    appendChatEntry("assistant", `[chat] ${payload.debugger} requires ${requirement}`);
-    setStatus(`${payload.debugger}: program path required`, false);
+    appendChatEntry("assistant", `[chat] ${debuggerId} requires ${requirement}`);
+    setStatus(`${debuggerId}: program path required`, false);
     startSessionButton.disabled = false;
     return;
   }
 
-  if (isPythonDebugger && payload.program && !payload.program.endsWith(".py")) {
+  if (isJdb && !classpathValue) {
+    appendChatEntry(
+      "assistant",
+      `[chat] jdb requires the classpath field to reference a .class directory or jar file.`
+    );
+    setStatus("jdb: classpath required", false);
+    startSessionButton.disabled = false;
+    return;
+  }
+
+  if (isPythonDebugger && programValue && !programValue.endsWith(".py")) {
     appendChatEntry(
       "assistant",
       "[chat] The Python debugger expects the program field to point to a .py script."
     );
-    const label = payload.debugger === "pdb" ? "pdb" : "python";
+    const label = debuggerId === "pdb" ? "pdb" : "python";
     setStatus(`${label}: script path should end with .py`, false);
     startSessionButton.disabled = false;
     return;
@@ -1606,7 +1763,7 @@ startSessionButton.addEventListener("click", async () => {
   }
 
   try {
-    const data = await api.createSession(payload);
+  const data = await api.createSession(payload);
     sessionId = data.session_id;
     clearConsole();
     clearChat();

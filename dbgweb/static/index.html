@@ -33,6 +33,32 @@
           <label for="program-input">Program</label>
           <input id="program-input" name="program" type="text" placeholder="path to binary" />
 
+          <div class="jdb-fields" data-debugger="jdb" aria-hidden="true">
+            <label for="classpath-input">Classpath<span aria-hidden="true">*</span></label>
+            <input
+              id="classpath-input"
+              name="classpath"
+              type="text"
+              placeholder="path to compiled classes or jar"
+            />
+
+            <label for="sourcepath-input">Source path (optional)</label>
+            <input
+              id="sourcepath-input"
+              name="sourcepath"
+              type="text"
+              placeholder="path to sources"
+            />
+
+            <label for="main-class-input">Main class (optional)</label>
+            <input
+              id="main-class-input"
+              name="main_class"
+              type="text"
+              placeholder="com.example.Main"
+            />
+          </div>
+
           <button type="button" id="start-session">Start Session</button>
         </form>
 
