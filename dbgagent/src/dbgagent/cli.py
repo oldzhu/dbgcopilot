@@ -5,18 +5,41 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import textwrap
+
+from dbgcopilot.llm import providers as provider_registry
 
 from .runner import AgentRequest, DebugAgentRunner
 
 
+SUPPORTED_DEBUGGERS = [
+    "gdb",
+    "lldb",
+    "lldb-rust",
+    "jdb",
+    "pdb",
+    "delve",
+    "radare2",
+]
+
+
 def _default_path(prefix: str, suffix: str) -> Path:
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     return Path("/tmp") / f"{prefix}-{ts}{suffix}"
 
 
 def build_parser() -> argparse.ArgumentParser:
+    provider_choices = provider_registry.list_providers()
+    default_provider = "openrouter"
+    if provider_choices:
+        if default_provider not in provider_choices:
+            default_provider = provider_choices[0]
+    else:
+        provider_choices = []
+
+    provider_hint = ", ".join(provider_choices) if provider_choices else "openrouter"
+
     parser = argparse.ArgumentParser(
         prog="dbgagent",
         description="Autonomous debugging agent for GDB and LLDB",
@@ -31,16 +54,45 @@ def build_parser() -> argparse.ArgumentParser:
             """
         ),
     )
-    parser.add_argument("--debugger", choices=["gdb", "lldb"], default="gdb", help="Debugger backend to use")
+    parser.add_argument(
+        "--debugger",
+        choices=SUPPORTED_DEBUGGERS,
+        default="gdb",
+        help="Debugger backend to use",
+    )
     parser.add_argument("--program", help="Path to the binary under test", default=None)
     parser.add_argument("--core", dest="corefile", help="Path to a core dump", default=None)
     parser.add_argument(
         "--goal", choices=["crash", "hang", "leak", "custom"], default="crash", help="Primary investigation goal"
     )
     parser.add_argument("--goal-text", default="", help="Free-form goal description or question")
-    parser.add_argument("--llm-provider", default="openrouter", help="LLM provider to use")
+    provider_help = f"LLM provider to use (available: {provider_hint})"
+    if provider_choices:
+        parser.add_argument(
+            "--llm-provider",
+            choices=provider_choices,
+            default=default_provider,
+            help=provider_help,
+        )
+    else:
+        parser.add_argument("--llm-provider", default=default_provider, help=provider_help)
     parser.add_argument("--llm-model", default=None, help="Override model for the selected provider")
     parser.add_argument("--llm-key", default=None, help="API key for the selected provider (optional)")
+    parser.add_argument(
+        "--classpath",
+        default=None,
+        help="Classpath for jdb (directory of classes or a JAR file)",
+    )
+    parser.add_argument(
+        "--sourcepath",
+        default=None,
+        help="Optional source path for jdb (directory containing .java files)",
+    )
+    parser.add_argument(
+        "--main-class",
+        default=None,
+        help="Main class for jdb (fully qualified, e.g. com.example.Main)",
+    )
     parser.add_argument("--max-steps", type=int, default=16, help="Maximum auto iterations")
     parser.add_argument(
         "--language",
@@ -62,6 +114,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    debugger = args.debugger
+
+    if debugger == "jdb":
+        if args.program:
+            parser.error("--program is not supported with jdb; use --classpath/--main-class instead")
+        if not args.classpath:
+            parser.error("jdb debugger requires --classpath pointing to the compiled classes or jar")
+        if not args.main_class:
+            parser.error("jdb debugger requires --main-class (fully qualified entry point)")
+    else:
+        if debugger in {"delve", "radare2", "pdb", "lldb-rust"} and not args.program:
+            parser.error(f"{debugger} debugger requires --program")
+
     log_enabled = bool(args.log_session or args.log_file or os.getenv("DBGAGENT_LOG"))
     report_path = Path(args.report_file) if args.report_file else _default_path("dbgagent-report", ".md")
     log_path: Path | None
@@ -78,11 +143,14 @@ def main(argv: list[str] | None = None) -> int:
         resume_text = resume_path.read_text(encoding="utf-8")
 
     request = AgentRequest(
-        debugger=args.debugger,
+        debugger=debugger,
         provider=args.llm_provider,
         model=args.llm_model,
         api_key=args.llm_key,
-        program=args.program,
+        program=None if debugger == "jdb" else args.program,
+        classpath=args.classpath if debugger == "jdb" else None,
+        sourcepath=args.sourcepath if debugger == "jdb" else None,
+        main_class=args.main_class if debugger == "jdb" else None,
         corefile=args.corefile,
         goal_type=args.goal,
         goal_text=args.goal_text,
@@ -99,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
         final_report = runner.run()
     except Exception as exc:  # pragma: no cover - best effort CLI safeguard
         print(f"[dbgagent] Error: {exc}", file=sys.stderr)
+        print("", file=sys.stderr)
+        parser.print_help(sys.stderr)
         return 1
 
     print(f"[dbgagent] Session complete. Report saved to {report_path}")

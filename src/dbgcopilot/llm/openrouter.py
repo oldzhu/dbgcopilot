@@ -79,7 +79,10 @@ def _ask_openrouter(
 
     key = _get_api_key(meta, session_config)
     if not key:
-        raise RuntimeError("OpenRouter API key not configured (OPENROUTER_API_KEY or session config)")
+        raise RuntimeError(
+            "OpenRouter API key not configured. Set OPENROUTER_API_KEY, provide openrouter_api_key via session config, "
+            "or select a different LLM provider."
+        )
 
     # OpenRouter chat completions endpoint (OpenAI-compatible)
     url = "https://openrouter.ai/api/v1/chat/completions"

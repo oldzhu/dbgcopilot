@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, cast, Iterable
 import logging
 import uuid
 import re
@@ -22,6 +22,9 @@ class AgentRequest:
     model: Optional[str]
     api_key: Optional[str]
     program: Optional[str]
+    classpath: Optional[str]
+    sourcepath: Optional[str]
+    main_class: Optional[str]
     corefile: Optional[str]
     goal_type: str
     goal_text: str
@@ -36,9 +39,9 @@ class AgentRequest:
 @dataclass
 class AgentState:
     session_id: str
-    attempts: List[Attempt] = field(default_factory=list)
-    chatlog: List[str] = field(default_factory=list)
-    facts: List[str] = field(default_factory=list)
+    attempts: list[Attempt] = field(default_factory=list)
+    chatlog: list[str] = field(default_factory=list)
+    facts: list[str] = field(default_factory=list)
     last_output: str = ""
 
 
@@ -48,13 +51,13 @@ class DebugAgentRunner:
     def __init__(self, request: AgentRequest) -> None:
         self.request = request
         self.state = AgentState(session_id=str(uuid.uuid4())[:8])
-        self.prompt_config = dict(AGENT_PROMPT_CONFIG)
+        self.prompt_config: Dict[str, Any] = dict(AGENT_PROMPT_CONFIG)
         self.session_config: dict[str, str] = {}
         self.logger = logging.getLogger(f"dbgagent.session.{self.state.session_id}")
         self.logger.setLevel(logging.INFO)
         self._handler: Optional[logging.Handler] = None
         self._provider_cache: Dict[str, Callable[[str], str]] = {}
-        self.usage_entries: List[Dict[str, Any]] = []
+        self.usage_entries: list[Dict[str, Any]] = []
         self.usage_totals: Dict[str, float] = {
             "prompt_tokens": 0.0,
             "completion_tokens": 0.0,
@@ -80,6 +83,18 @@ class DebugAgentRunner:
         if self.request.api_key:
             self.session_config[f"{provider_key}_api_key"] = self.request.api_key
 
+        if self.request.program:
+            self.state.facts.append(f"Program path: {self.request.program}")
+        if self.request.corefile:
+            self.state.facts.append(f"Corefile: {self.request.corefile}")
+        if self.request.debugger == "jdb":
+            if self.request.classpath:
+                self.state.facts.append(f"JDB classpath: {self.request.classpath}")
+            if self.request.sourcepath:
+                self.state.facts.append(f"JDB sourcepath: {self.request.sourcepath}")
+            if self.request.main_class:
+                self.state.facts.append(f"JDB main class: {self.request.main_class}")
+
         self.backend = None
 
     # ------------------------------------------------------------------
@@ -90,6 +105,16 @@ class DebugAgentRunner:
             self._log(f"Provider: {self.request.provider} | Model: {self.request.model or '(default)'}")
             self._log(f"Goal: {self.request.goal_type} | Notes: {self.request.goal_text or '(none)'}")
             self._log(f"Language: {self.request.language}")
+            if self.request.debugger == "jdb":
+                self._log(f"Classpath: {self.request.classpath or '(unset)'}")
+                self._log(f"Main class: {self.request.main_class or '(unset)'}")
+                if self.request.sourcepath:
+                    self._log(f"Sourcepath: {self.request.sourcepath}")
+            else:
+                if self.request.program:
+                    self._log(f"Program: {self.request.program}")
+                if self.request.corefile:
+                    self._log(f"Corefile: {self.request.corefile}")
             self.backend = self._create_backend()
             self._prepare_debugger()
             final_report = self._auto_loop()
@@ -102,64 +127,184 @@ class DebugAgentRunner:
 
     # ------------------------------------------------------------------
     def _create_backend(self):
-        if self.request.debugger == "gdb":
+        debugger = self.request.debugger
+        if debugger == "gdb":
             from dbgcopilot.backends.gdb_subprocess import GdbSubprocessBackend
 
             backend = GdbSubprocessBackend()
-        elif self.request.debugger == "lldb":
-            try:
-                import lldb  # type: ignore
+            backend.initialize_session()
+        elif debugger == "lldb":
+            backend = self._create_lldb_backend()
+        elif debugger == "lldb-rust":
+            backend = self._create_lldb_rust_backend()
+        elif debugger == "delve":
+            if not self.request.program:
+                raise ValueError("Delve debugger requires a program path")
+            from dbgcopilot.backends.delve_subprocess import DelveSubprocessBackend
 
-                has_lldb = True
-            except Exception:
-                has_lldb = False
+            backend = DelveSubprocessBackend(program=self.request.program)
+            backend.initialize_session()
+        elif debugger == "radare2":
+            if not self.request.program:
+                raise ValueError("radare2 debugger requires a program path")
+            from dbgcopilot.backends.radare2_subprocess import Radare2SubprocessBackend
 
-            if has_lldb:
+            backend = Radare2SubprocessBackend(program=self.request.program)
+            backend.initialize_session()
+        elif debugger == "pdb":
+            if not self.request.program:
+                raise ValueError("pdb debugger requires a Python script path")
+            from dbgcopilot.backends.python_pdb import PythonPdbBackend
+
+            backend = PythonPdbBackend(program=self.request.program)
+            backend.initialize_session()
+        elif debugger == "jdb":
+            from dbgcopilot.backends.java_jdb import JavaJdbBackend
+
+            backend = JavaJdbBackend(
+                program=self.request.main_class,
+                classpath=self.request.classpath,
+                sourcepath=self.request.sourcepath,
+            )
+            backend.initialize_session()
+        else:
+            raise ValueError(f"Unsupported debugger: {debugger}")
+
+        backend_name = getattr(backend, "name", backend.__class__.__name__)
+        self._log(f"Using debugger backend: {backend_name}")
+        self.state.facts.append(f"Debugger backend: {backend_name}")
+
+        startup = getattr(backend, "startup_output", "")
+        if isinstance(startup, str) and startup.strip():
+            self.state.facts.append(startup.strip())
+
+        return backend
+
+    def _create_lldb_backend(self):
+        api_error: Optional[Exception] = None
+        try:
+            from dbgcopilot.backends.lldb_api import LldbApiBackend
+
+            backend = LldbApiBackend()
+            backend.initialize_session()
+            self._log("Selected LLDB API backend")
+            return backend
+        except Exception as exc:
+            api_error = exc
+
+        try:
+            import lldb  # type: ignore
+
+            if getattr(lldb, "debugger", None):
                 from dbgcopilot.backends.lldb_inprocess import LldbInProcessBackend
 
                 backend = LldbInProcessBackend()
+                backend.initialize_session()
                 self._log("Selected LLDB in-process backend")
-            else:
-                from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
+                return backend
+        except Exception:
+            pass
 
-                backend = LldbSubprocessBackend()
-                self._log("LLDB Python API unavailable; falling back to subprocess backend")
-        else:
-            raise ValueError(f"Unsupported debugger: {self.request.debugger}")
-            backend_name = getattr(backend, "name", backend.__class__.__name__)
-            self._log(f"Using debugger backend: {backend_name}")
-            self.state.facts.append(f"Debugger backend: {backend_name}")
+        from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
+
+        backend = LldbSubprocessBackend()
         backend.initialize_session()
+        if api_error:
+            self._log(f"LLDB API backend unavailable, using subprocess backend: {api_error}")
+        else:
+            self._log("Selected LLDB subprocess backend")
+        return backend
+
+    def _create_lldb_rust_backend(self):
+        api_error: Optional[Exception] = None
+        try:
+            from dbgcopilot.backends.lldb_rust_api import LldbRustApiBackend
+
+            backend = LldbRustApiBackend()
+            backend.initialize_session()
+            self._log("Selected LLDB Rust API backend")
+            return backend
+        except Exception as exc:
+            api_error = exc
+
+        from dbgcopilot.backends.lldb_rust import LldbRustBackend
+
+        backend = LldbRustBackend()
+        backend.initialize_session()
+        if api_error:
+            self._log(
+                f"LLDB Rust API backend unavailable, using subprocess backend: {api_error}"
+            )
+        else:
+            self._log("Selected LLDB Rust subprocess backend")
         return backend
 
     def _prepare_debugger(self) -> None:
         if self.backend is None:
             return
         self._log("Preparing debugger session")
-        commands: List[str] = []
-        if self.request.debugger == "gdb":
+        commands: list[str] = []
+        debugger = self.request.debugger
+
+        if debugger == "gdb":
             if self.request.program:
                 commands.append(f"file {self.request.program}")
             if self.request.corefile:
                 commands.append(f"core-file {self.request.corefile}")
-        else:  # lldb heuristics
+        elif debugger in {"lldb", "lldb-rust"}:
             if self.request.program and self.request.corefile:
-                commands.append(f"target create {self.request.program} --core {self.request.corefile}")
+                commands.append(
+                    f"target create {self.request.program} --core {self.request.corefile}"
+                )
             elif self.request.corefile:
                 commands.append(f"target create --core {self.request.corefile}")
             elif self.request.program:
                 commands.append(f"target create {self.request.program}")
+        elif debugger == "pdb":
+            if self.request.program:
+                commands.append(f"file {self.request.program}")
+        elif debugger == "jdb":
+            details: list[str] = []
+            if self.request.classpath:
+                details.append(f"classpath={self.request.classpath}")
+            if self.request.sourcepath:
+                details.append(f"sourcepath={self.request.sourcepath}")
+            if self.request.main_class:
+                details.append(f"main_class={self.request.main_class}")
+            if details:
+                self.state.facts.append("JDB configuration: " + ", ".join(details))
+            return
+        else:
+            # Delve and radare2 perform program loading during initialization.
+            return
+
         for cmd in commands:
             out = self.backend.run_command(cmd)
             self._record_execution(cmd, out)
 
     # ------------------------------------------------------------------
     def _auto_loop(self) -> str:
-        max_steps = int(self.prompt_config.get("max_steps", self.request.max_steps))
+        max_steps_value = self.prompt_config.get("max_steps", self.request.max_steps)
+        try:
+            max_steps = int(max_steps_value)
+        except Exception:
+            max_steps = self.request.max_steps
+
         dbg = getattr(self.backend, "name", self.request.debugger)
-        system_preamble = self.prompt_config.get("system_preamble", "").format(debugger=dbg)
-        rules = self.prompt_config.get("rules", [])
-        rules_text = "\n".join(f"- {r}" for r in rules) if rules else ""
+        system_template = str(self.prompt_config.get("system_preamble", ""))
+        try:
+            system_preamble = system_template.format(debugger=dbg)
+        except Exception:
+            system_preamble = system_template
+
+        rules_value = self.prompt_config.get("rules", [])
+        if isinstance(rules_value, (list, tuple)):
+            iterable_rules = cast(Iterable[Any], rules_value)
+            rendered_rules = [f"- {item}" for item in iterable_rules]
+            rules_text = "\n".join(rendered_rules)
+        else:
+            rules_text = ""
+
         followup = str(self.prompt_config.get("followup_instruction", ""))
         language_instruction = self._language_instruction()
 
@@ -190,7 +335,7 @@ class DebugAgentRunner:
 
     # ------------------------------------------------------------------
     def _build_prompt(self, system_preamble: str, rules_text: str, followup: str, language_instruction: str) -> str:
-        context_lines: List[str] = []
+        context_lines: list[str] = []
         context_lines.append(f"Goal category: {self.request.goal_type}")
         if self.request.goal_text:
             context_lines.append(f"Goal notes: {self.request.goal_text}")
@@ -269,13 +414,15 @@ class DebugAgentRunner:
         if not isinstance(usage, dict) or not usage:
             return
 
+        usage_dict: Dict[str, Any] = cast(Dict[str, Any], usage)
+
         entry: Dict[str, Any] = {
-            "provider": usage.get("provider") or provider,
-            "model": usage.get("model") or self.request.model or "(default)",
+            "provider": usage_dict.get("provider") or provider,
+            "model": usage_dict.get("model") or self.request.model or "(default)",
         }
 
         for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-            val = usage.get(key)
+            val = usage_dict.get(key)
             if val is None:
                 continue
             try:
@@ -285,7 +432,7 @@ class DebugAgentRunner:
             entry[key] = intval
             self.usage_totals[key] = self.usage_totals.get(key, 0.0) + intval
 
-        cost_val = usage.get("cost")
+        cost_val = usage_dict.get("cost")
         if cost_val is not None:
             try:
                 cost_float = float(cost_val)
