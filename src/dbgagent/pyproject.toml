@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.urls]
-Home = "https://github.com/oldzhu/dbgcopilot"
+Homepage = "https://github.com/oldzhu/dbgcopilot"
 
 [project.scripts]
 dbgagent = "dbgagent.cli:main"

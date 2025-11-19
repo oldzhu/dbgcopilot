@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.urls]
-Home = "https://github.com/oldzhu/dbgcopilot"
+Homepage = "https://github.com/oldzhu/dbgcopilot"
 
 [project.scripts]
 dbgcopilot-plugin-path = "dbgcopilot.cli:print_plugin_path"
