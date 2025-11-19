@@ -37,6 +37,9 @@ make install-wheel
 pip install -e src/dbgagent
 ```
 
+Reminder: rerun `pip install -e src/dbgagent` after moving or updating the sources so the `dbgagent` executable points at `src/dbgagent`.
+```
+
 Distribution & Publishing
 -------------------------
 End users can try the project through one of three delivery channels while we publish the artifacts:

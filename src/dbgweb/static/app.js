@@ -1407,8 +1407,10 @@ if (chatConfigClose) {
 }
 
 if (debuggerSelect) {
+  let previousDebugger = debuggerSelect.value;
   const updateDebuggerFields = () => {
     const value = debuggerSelect.value;
+    const leftJdb = previousDebugger === "jdb" && value !== "jdb";
     const isPythonDebugger = value === "pdb" || value === "python";
     const isJdb = value === "jdb";
     let placeholder = "path to binary";
@@ -1456,9 +1458,27 @@ if (debuggerSelect) {
 
     if (!isJdb) {
       setSelectedPathInput(null);
+      if (leftJdb) {
+        if (classpathInput) {
+          classpathInput.value = "";
+          classpathInput.classList.remove("path-input-selected");
+        }
+        if (sourcepathInput) {
+          sourcepathInput.value = "";
+          sourcepathInput.classList.remove("path-input-selected");
+        }
+        if (mainClassInput) {
+          mainClassInput.value = "";
+        }
+        if (programInput) {
+          programInput.value = "";
+        }
+      }
     } else if (!selectedPathInput && classpathInput && !classpathInput.disabled) {
       setSelectedPathInput(classpathInput);
     }
+
+    previousDebugger = value;
   };
 
   debuggerSelect.addEventListener("change", updateDebuggerFields);
