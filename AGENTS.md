@@ -59,7 +59,7 @@ After changes:
 - Providers: `src/dbgcopilot/llm/*` — OpenRouter and OpenAI-compatible client and registry.
 - REPLs: `src/dbgcopilot/repl/standalone.py`, `plugins/gdb/repl.py`, `plugins/lldb/repl.py` — slash commands and session config.
 - Prompts: `src/dbgcopilot/prompts/` — defaults and tool instructions.
-- Autonomous agent CLI: `dbgagent/` — standalone package that drives debugger commands automatically.
+- Autonomous agent CLI: `src/dbgagent/` — standalone package that drives debugger commands automatically.
 
 ## Pull requests
 

@@ -9,7 +9,7 @@ report that can be edited and replayed in subsequent runs.
 ```bash
 # Inside your virtual environment
 pip install dbgcopilot  # install the shared backends and providers
-pip install -e dbgagent
+pip install -e src/dbgagent
 
 # Investigate a crash automatically using DeepSeek
 DBGAGENT_LOG=1 dbgagent --debugger gdb --program ./examples/crash_demo/crash \

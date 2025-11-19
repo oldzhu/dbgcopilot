@@ -34,8 +34,16 @@ make build
 make install-wheel
 
 # Optional: install the autonomous agent CLI
-pip install -e dbgagent
+pip install -e src/dbgagent
 ```
+
+Distribution & Publishing
+-------------------------
+End users can try the project through one of three delivery channels while we publish the artifacts:
+
+1. **pip package** – publish `dbgcopilot` (plus `dbgagent`/`dbgweb`) to PyPI. Users simply run `pip install dbgcopilot` and `pip install -e src/dbgagent` locally, but they must also install the debugger toolchain that powers the autonomous flows. The `Dockerfile` already enumerates the expected dependencies (GDB, LLDB, Delve, Radare2, the Rust toolchain, Go/Delve, and a headless JDK for `jdb`). Make sure your system ships those binaries or install them via your distro before running `dbgagent` or the REPL.
+2. **Docker Hub image** – ship a container (for example, `oldzhu/dbgcopilot-dev:latest`) that already includes the tools and Python packages. Build with `docker build -t dbgcopilot-dev:latest .`, tag it (`docker tag ... oldzhu/dbgcopilot-dev:latest`), and push (`docker push oldzhu/dbgcopilot-dev:latest`). Users can then run the published image, mount their workspace, and execute `python -m pytest -q` or the `dbgagent` CLI inside the container.
+3. **Dev Container** – clone the repo and use the `.devcontainer/devcontainer.json` definition with VS Code Remote-Containers or the `devcontainer` CLI. The dev container mirrors the Docker Hub image, exposes proxy arguments via `remoteEnv`, and provides commands such as `make docker-build`, `make docker-pytest`, and the various `gdb`/`lldb` helper targets described later in this README.
 
 Ways to load dbgcopilot in GDB
 ------------------------------
@@ -141,7 +149,7 @@ Autonomous debugging (`dbgagent`)
 automatic investigations, install the companion package that ships in this repository:
 
 ```bash
-pip install -e dbgagent
+pip install -e src/dbgagent
 DBGAGENT_LOG=1 dbgagent --debugger gdb --program ./examples/crash_demo/crash \
   --goal crash --llm-provider deepseek --llm-key "$DEEPSEEK_API_KEY"
 ```
@@ -190,7 +198,8 @@ Project Layout
 - `prompts/` — LLM prompt templates
 - `configs/default.yaml` — defaults
 - `tests/` — test stubs
-- `dbgagent/` — standalone autonomous agent package
+- `src/dbgagent/` — standalone autonomous agent package
+- `src/dbgweb/` — FastAPI-based debugger dashboard and APIs
 - `examples/` — ready-made crash and hang scenarios for C/C++, Python, and Rust
 
 Example Programs
