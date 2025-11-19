@@ -2,6 +2,16 @@
 # Use DevContainers C++ image with gcc/clang/gdb preinstalled
 FROM mcr.microsoft.com/devcontainers/cpp:ubuntu-24.04
 
+# Declare build args
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+# Use them
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1
 
@@ -9,7 +19,7 @@ ENV GOROOT=/usr/local/go \
     GOPATH=/opt/go \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH="${GOROOT}/bin:${GOPATH}/bin:${CARGO_HOME}/bin:${PATH}"
+    PATH="/usr/local/go/bin:/opt/go/bin:/usr/local/cargo/bin:${PATH}"
 
 # Note: cpp image already contains build-essential, gcc/g++, cmake, ninja, clang, gdb.
 # lldb may not be present; we will add it later once network issues are resolved.
@@ -24,22 +34,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go toolchain manually (apt pkg unavailable) and Delve debugger
-RUN wget -q -O /tmp/go.tar.gz https://go.dev/dl/go1.25.4.linux-amd64.tar.gz \
+RUN wget -O /tmp/go.tar.gz https://go.dev/dl/go1.25.4.linux-amd64.tar.gz \
     && rm -rf /usr/local/go \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
     && rm -f /tmp/go.tar.gz \
-    && mkdir -p ${GOPATH} \
+    && mkdir -p /opt/go \
     && go install github.com/go-delve/delve/cmd/dlv@latest
 
 # Install latest radare2 from upstream
-RUN git clone --depth=1 https://github.com/radareorg/radare2.git /opt/radare2 \
-    && /opt/radare2/sys/install.sh \
-    && rm -rf /opt/radare2
+#RUN git clone --depth=1 https://github.com/radareorg/radare2.git /opt/radare2 \
+#    && /opt/radare2/sys/install.sh \
+#    && rm -rf /opt/radare2
+
+# Replace git clone with wget (since git clone is failing due to network issues) to download the latest radare2 source code as a tarball, then install it
+RUN set -eux; \
+    wget -O /tmp/radare2.tar.gz https://github.com/radareorg/radare2/archive/refs/heads/master.tar.gz; \
+    mkdir -p /opt/radare2; \
+    tar -C /opt/radare2 --strip-components=1 -xzf /tmp/radare2.tar.gz; \
+    rm /tmp/radare2.tar.gz; \
+    /opt/radare2/sys/install.sh 
+#   rm -rf /opt/radare2
 
 # Install Rust toolchain via rustup (stable channel, minimal profile)
 RUN set -eux; \
     curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; \
-    chmod -R a+rX ${RUSTUP_HOME} ${CARGO_HOME}; \
+    chmod -R a+rX /usr/local/rustup /usr/local/cargo; \
     rustup component add rustfmt clippy
 
 # Install LLVM/LLDB 19 from apt.llvm.org (Ubuntu 24.04 = noble)
