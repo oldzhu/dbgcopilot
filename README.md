@@ -19,3 +19,5 @@ Supply GIFs or short videos under `docs/media/` and point to them from this sect
 - [Notes & LLDB Python API tips](docs/notes.md)
 - [Project layout and example programs](docs/project-layout.md)
 - [Demo media placeholders](docs/media/README.md)
+
+> **Note:** The `dbgagent` CLI is shipped as a separate wheel from the shared `dbgcopilot` package, so see [Distribution & Publishing](docs/publishing.md) for the build/publish/install steps that cover both wheels.
