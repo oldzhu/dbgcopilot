@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dbgcopilot"
 version = "0.0.1"
-description = "Debugger Copilot POC for GDB/LLDB"
+description = "Debugger Copilot POC for GDB, LLDB, Delve, Radare2, jdb, and pdb"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Debugger Copilot" }]
@@ -17,6 +17,9 @@ dependencies = [
 	"uvicorn[standard]>=0.30",
 	"r2pipe>=1.9",
 ]
+
+[project.urls]
+Home = "https://github.com/oldzhu/dbgcopilot"
 
 [project.scripts]
 dbgcopilot-plugin-path = "dbgcopilot.cli:print_plugin_path"
