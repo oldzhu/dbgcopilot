@@ -11,7 +11,7 @@ Debugger Copilot is an AI-assisted debugging copilot that works with GDB, LLDB, 
 Supply GIFs or short videos under `docs/media/` and point to them from this section to showcase each workflow.
 
 ## Quick links
-- [Installation & Build](docs/install.md)
+- [Installation & Testing](docs/install.md)
 - [Distribution & Publishing](docs/publishing.md)
 - [Loading Debugger Copilot in GDB](docs/gdb.md)
 - [Autonomous debugging with `dbgagent`](docs/autonomous.md)
