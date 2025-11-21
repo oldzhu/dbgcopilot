@@ -8,7 +8,7 @@ This guide walks through installing the published packages rather than building 
 - Optional helper utilities: `pip`, `virtualenv`, `curl`.
 
 ## Install from GitHub
-Install the published GitHub-release wheels so you get the console scripts for `dbgcopilot`, `dbgagent`, and the FastAPI dashboard. Since the PyPI wheels have not been published yet, download the release assets directly until the pip upload lands.
+Install the published GitHub-release wheels so you get the console scripts for `dbgcopilot`, `dbgagent`, and the `dbgweb` FastAPI dashboard. Since the PyPI wheels have not been published yet, download the release assets directly until the pip upload lands.
 
 ```bash
 python -m venv ~/.dbgcopilot
