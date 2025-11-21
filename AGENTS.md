@@ -4,7 +4,7 @@ This document provides standard guidance for AI agents and automated tools contr
 
 ## Repository overview
 
-Debugger Copilot (POC) provides REPLs and backends for GDB/LLDB, with an LLM-driven orchestrator that suggests and runs debugger commands. Languages: Python (core, REPLs), a bit of shell/Make.
+Debugger Copilot provides REPLs and backends for GDB/LLDB, with an LLM-driven orchestrator that suggests and runs debugger commands. Languages: Python (core, REPLs), a bit of shell/Make.
 
 Key locations:
 - `src/dbgcopilot/` — package sources (core, llm, utils, plugins)

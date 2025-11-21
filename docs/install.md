@@ -7,15 +7,15 @@ This guide walks through installing the published packages rather than building 
 - native debugger tooling: GDB, LLDB, Delve, Radare2, Rust toolchain, Go/Delve, and a headless JDK for `jdb`. The [`Dockerfile`](../Dockerfile) documents the exact packages we include in the dev image.
 - Optional helper utilities: `pip`, `virtualenv`, `curl`.
 
-## Install from PyPI or GitHub
-Install the published wheels for both packages so you get the console scripts for `dbgcopilot`, `dbgagent`, and the FastAPI dashboard.
+## Install from GitHub
+Install the published GitHub-release wheels so you get the console scripts for `dbgcopilot`, `dbgagent`, and the FastAPI dashboard. Since the PyPI wheels have not been published yet, download the release assets directly until the pip upload lands.
 
 ```bash
 python -m venv ~/.dbgcopilot
 source ~/.dbgcopilot/bin/activate
 python -m pip install --upgrade pip
-pip install dbgcopilot==<version>
-pip install dbgagent==<version>
+pip install https://github.com/oldzhu/dbgcopilot/releases/download/<release>/dbgcopilot-<version>-py3-none-any.whl
+pip install https://github.com/oldzhu/dbgcopilot/releases/download/<release>/dbgagent-<version>-py3-none-any.whl
 ```
 
 If you are testing a prerelease, download the wheel assets from the GitHub release and install them directly:
@@ -24,6 +24,15 @@ If you are testing a prerelease, download the wheel assets from the GitHub relea
 pip install https://github.com/oldzhu/dbgcopilot/releases/download/v0.0.1-pre/dbgcopilot-0.0.1-py3-none-any.whl
 pip install https://github.com/oldzhu/dbgcopilot/releases/download/v0.0.1-pre/dbgagent-0.0.1-py3-none-any.whl
 ```
+
+## Install from PyPI (pending)
+The PyPI wheels have not been published yet. Once the release goes live you can switch to the usual pip workflow using the same package names:
+
+```bash
+pip install dbgcopilot==<version>
+pip install dbgagent==<version>
+```
+Keep an eye on the release notes; the PyPI wheels will include the same scripts and entry points as the GitHub assets.
 
 ## Quick verification
 - `dbgcopilot --help` should launch the REPL instructions.
@@ -40,8 +49,8 @@ pip install https://github.com/oldzhu/dbgcopilot/releases/download/v0.0.1-pre/db
 
 ## Additional ways to use & test
 
-### Docker image
-When the published image (for example `oldzhu/dbgcopilot-dev:latest`) is available, you can skip installing Python packages locally. Pull and run the container, mounting whatever workspace or examples you want to exercise:
+### Clone + Dev Container
+Clone the repo, open it in VS Code (with Remote-Containers) or use the `devcontainer` CLI so you get the same image above. Inside that environment you can rebuild/install/test just like the developer workflow but without manual dependency installation:
 
 ```bash
 docker pull oldzhu/dbgcopilot-dev:latest
@@ -52,8 +61,8 @@ dbgagent --help
 python -m pytest tests/test_smoke_structure.py
 ```
 
-### Clone + Dev Container
-Clone the repo, open it in VS Code (with Remote-Containers) or use the `devcontainer` CLI so you get the same image above. Inside that environment you can rebuild/install/test just like the developer workflow but without manual dependency installation:
+### Docker image (pending publication)
+The published Docker image (`oldzhu/dbgcopilot-dev:latest`) is not available yet. Once it ships, you can skip installing Python packages locally by pulling and running the container while mounting whatever workspace or examples you want to exercise:
 
 ```bash
 git clone https://github.com/oldzhu/dbgcopilot.git

@@ -1,4 +1,4 @@
-# Dev container for Debugger Copilot POC
+# Dev container for Debugger Copilot
 # Use DevContainers C++ image with gcc/clang/gdb preinstalled
 FROM mcr.microsoft.com/devcontainers/cpp:ubuntu-24.04
 

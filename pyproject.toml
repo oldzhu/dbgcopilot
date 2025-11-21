@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dbgcopilot"
 version = "0.0.1"
-description = "Debugger Copilot POC for GDB, LLDB, Delve, Radare2, jdb, and pdb"
+description = "Debugger Copilot for GDB, LLDB, Delve, Radare2, jdb, and pdb"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Debugger Copilot" }]
