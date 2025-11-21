@@ -5,6 +5,7 @@ Phase 2a: supports selecting GDB via a subprocess backend. LLDB will be added ne
 # pyright: reportConstantRedefinition=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 from __future__ import annotations
 
+import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -27,6 +28,12 @@ def _validate_path(path_input: str) -> tuple[str, Optional[str]]:
     if not candidate.exists():
         return "", f"Path '{path_input}' not found."
     return str(candidate.resolve()), None
+
+
+def _ensure_tool(executable: str, label: str, hint: str) -> Optional[str]:
+    if shutil.which(executable):
+        return None
+    return f"{label} not found on PATH. {hint}"
 
 
 def _ensure_session() -> SessionState:
@@ -135,6 +142,13 @@ def _select_delve() -> str:
     except Exception as e:  # pragma: no cover - import guards runtime dependency
         return f"Failed to load Delve backend: {e}"
 
+    if err := _ensure_tool(
+        "dlv",
+        "Delve (dlv) executable",
+        "Install Delve and make sure `dlv` is on PATH before picking this backend.",
+    ):
+        return err
+
     path = input("Enter path to Go binary for Delve: ").strip()
     if not path:
         return "Delve requires a binary path; selection cancelled."
@@ -162,6 +176,13 @@ def _select_radare2() -> str:
         from dbgcopilot.backends.radare2_subprocess import Radare2SubprocessBackend
     except Exception as e:  # pragma: no cover - import guards runtime dependency
         return f"Failed to load radare2 backend: {e}"
+
+    if err := _ensure_tool(
+        "radare2",
+        "radare2 executable",
+        "Install radare2 and ensure it is on PATH before picking this backend.",
+    ):
+        return err
 
     path = input("Enter path to binary for radare2: ").strip()
     if not path:
@@ -214,6 +235,13 @@ def _select_jdb() -> str:
         from dbgcopilot.backends.java_jdb import JavaJdbBackend
     except Exception as exc:
         return f"Failed to load jdb backend: {exc}"
+
+    if err := _ensure_tool(
+        "jdb",
+        "jdb executable",
+        "Install a JDK and add its `bin` directory to PATH before using this backend.",
+    ):
+        return err
 
     classpath = s.config.get("classpath")
     sourcepath = s.config.get("sourcepath")
