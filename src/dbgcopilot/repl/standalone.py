@@ -337,27 +337,15 @@ def _select_lldb_rust() -> str:
         BACKEND = None
 
     if BACKEND is None:
-        backend_label = "LLDB (rust-friendly subprocess backend)."
-        try:
-            from dbgcopilot.backends.lldb_rust import LldbRustBackend
-        except Exception as exc:
-            detail = f"Failed to load LLDB Rust backend: {exc}"
-            if api_error:
-                detail += f"\nAlso failed to load API backend: {api_error}"
-            return detail
-
-        try:
-            BACKEND = LldbRustBackend()
-            BACKEND.initialize_session()
-        except Exception as exc:
-            BACKEND = None
-            detail = f"Failed to start lldb-rust backend: {exc}"
-            if api_error:
-                detail += f"\nAlso failed to start API backend: {api_error}"
-            return detail
+        # Disable the subprocess backend temporarily while we fix the capture issues.
+        detail = (
+            "LLDB (rust-friendly API backend) failed to initialize."
+            " The subprocess backend is currently disabled until we resolve its output capture issues."
+        )
         if api_error:
-            backend_label += f" (API backend unavailable: {api_error})"
-    elif api_error:
+            detail += f" API error: {api_error}"
+        return detail
+    if api_error:
         # API succeeded; clear error to avoid stale reference.
         api_error = None
 
@@ -795,25 +783,11 @@ def _select_lldb() -> str:
         _install_output_sink(s)
         return "Using LLDB (API backend)."
     except Exception as api_err:
-        try:
-            from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
-        except Exception as e:
-            return (
-                f"Failed to load LLDB backends: API error: {api_err}; subprocess import error: {e}\n"
-                + _lldb_install_hint()
-            )
-        BACKEND = LldbSubprocessBackend()
-        try:
-            BACKEND.initialize_session()
-        except Exception as sub_err:
-            BACKEND = None
-            return (
-                f"Failed to start lldb (API error: {api_err}); subprocess error: {sub_err}\n"
-                + _lldb_install_hint()
-            )
-    ORCH = CopilotOrchestrator(BACKEND, s)
-    _install_output_sink(s)
-    return "Using LLDB (subprocess backend; Python API unavailable).\n" + _lldb_install_hint()
+        return (
+            "LLDB API backend failed to initialize."
+            " The subprocess backend is temporarily disabled until the pexpect output capture issue is resolved.\n"
+            + _lldb_install_hint()
+        )
 
 
 def main(argv: Optional[list[str]] = None) -> int:
