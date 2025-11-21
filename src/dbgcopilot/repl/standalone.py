@@ -5,11 +5,17 @@ Phase 2a: supports selecting GDB via a subprocess backend. LLDB will be added ne
 # pyright: reportConstantRedefinition=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 from __future__ import annotations
 
+import atexit
 import shutil
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional, Any, Dict
+
+try:
+    import readline
+except ImportError:  # pragma: no cover - optional feature
+    readline = None
 
 from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt, resolve_auto_round_limit
@@ -21,6 +27,7 @@ from dbgcopilot.utils.io import color_text
 SESSION: Optional[SessionState] = None
 BACKEND: Optional[Any] = None
 ORCH: Optional[CopilotOrchestrator] = None
+_READLINE_CONFIGURED = False
 
 
 def _validate_path(path_input: str) -> tuple[str, Optional[str]]:
@@ -34,6 +41,39 @@ def _ensure_tool(executable: str, label: str, hint: str) -> Optional[str]:
     if shutil.which(executable):
         return None
     return f"{label} not found on PATH. {hint}"
+
+
+def _configure_readline_history() -> None:
+    global _READLINE_CONFIGURED
+    if _READLINE_CONFIGURED:
+        return
+    _READLINE_CONFIGURED = True
+    if readline is None:
+        return
+    rl_module = readline
+    try:
+        hist_path = Path.home() / ".copilot_history"
+    except Exception:
+        hist_path = None
+    if hist_path:
+        try:
+            rl_module.read_history_file(str(hist_path))
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+    try:
+        rl_module.set_history_length(1024)
+        rl_module.parse_and_bind("tab: complete")
+    except Exception:
+        pass
+    if hist_path:
+        def _save_history() -> None:  # pragma: no cover - best-effort cleanup
+            try:
+                rl_module.write_history_file(str(hist_path))
+            except Exception:
+                pass
+        atexit.register(_save_history)
 
 
 def _ensure_session() -> SessionState:
@@ -784,13 +824,14 @@ def _select_lldb() -> str:
         return "Using LLDB (API backend)."
     except Exception as api_err:
         return (
-            "LLDB API backend failed to initialize."
+            f"LLDB API backend failed to initialize: {api_err}."
             " The subprocess backend is temporarily disabled until the pexpect output capture issue is resolved.\n"
             + _lldb_install_hint()
         )
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    _configure_readline_history()
     _ensure_session()
     _echo(
     "Standalone REPL. Type /help. Choose a debugger with /use <debugger> "
