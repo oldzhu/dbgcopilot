@@ -7,6 +7,8 @@ This guide walks through installing the published packages rather than building 
 - native debugger tooling: GDB, LLDB, Delve, Radare2, Rust toolchain, Go/Delve, and a headless JDK for `jdb`. The [`Dockerfile`](../Dockerfile) documents the exact packages we include in the dev image.
 - Optional helper utilities: `pip`, `virtualenv`, `curl`.
 
+Both `dbgcopilot` and `dbgagent` print a reminder about missing debugger binaries (and link back to this section) when the runtime checks detect that those tools are not on `PATH`.
+
 ## Install from GitHub
 Install the published GitHub-release wheels so you get the console scripts for `dbgcopilot`, `dbgagent`, and the `dbgweb` FastAPI dashboard. Since the PyPI wheels have not been published yet, download the release assets directly until the pip upload lands.
 

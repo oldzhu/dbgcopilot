@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import textwrap
 
 from dbgcopilot.llm import providers as provider_registry
+from dbgcopilot.utils.tools import warn_missing_debugger_tools
 
 from .runner import AgentRequest, DebugAgentRunner
 
@@ -113,6 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    warn_missing_debugger_tools("dbgagent")
 
     debugger = args.debugger
 

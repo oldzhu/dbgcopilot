@@ -21,6 +21,7 @@ from dbgcopilot.core.orchestrator import CopilotOrchestrator
 from dbgcopilot.core.state import SessionState, Attempt, resolve_auto_round_limit
 from dbgcopilot.llm import params as _llm_params
 from dbgcopilot.utils.io import color_text
+from dbgcopilot.utils.tools import warn_missing_debugger_tools
 
 
 # Globals for a simple REPL
@@ -832,6 +833,7 @@ def _select_lldb() -> str:
 
 def main(argv: Optional[list[str]] = None) -> int:
     _configure_readline_history()
+    warn_missing_debugger_tools("dbgcopilot")
     _ensure_session()
     _echo(
     "Standalone REPL. Type /help. Choose a debugger with /use <debugger> "
