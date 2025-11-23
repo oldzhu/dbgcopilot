@@ -185,7 +185,7 @@ def _select_delve() -> str:
     if err := _ensure_tool(
         "dlv",
         "Delve (dlv) executable",
-        "Install Delve and make sure `dlv` is on PATH before picking this backend.",
+        "Install Delve through `go install github.com/go-delve/delve/cmd/dlv@latest` and make sure `dlv` is on PATH before picking this backend.",
     ):
         return err
 
@@ -220,7 +220,7 @@ def _select_radare2() -> str:
     if err := _ensure_tool(
         "radare2",
         "radare2 executable",
-        "Install radare2 and ensure it is on PATH before picking this backend.",
+        "Install radare2 (see https://github.com/radareorg/radare2 for instructions) and ensure it is on PATH before picking this backend.",
     ):
         return err
 
@@ -279,7 +279,7 @@ def _select_jdb() -> str:
     if err := _ensure_tool(
         "jdb",
         "jdb executable",
-        "Install a JDK and add its `bin` directory to PATH before using this backend.",
+        "Install a JDK such as `openjdk-21-jdk-headless` and add its `bin` directory to PATH before using this backend.",
     ):
         return err
 
