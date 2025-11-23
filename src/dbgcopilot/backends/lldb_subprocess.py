@@ -110,11 +110,13 @@ class LldbSubprocessBackend:
         if timeout is not None:
             self.child.timeout = timeout
         try:
-            # First prompt match corresponds to the echoed command prompt.
-            self._expect_prompt()
-            # Second match captures the command output before the next prompt.
-            self._expect_prompt()
-            out = self.child.before or ""
+            out = ""
+            for _ in range(5):
+                chunk = self._expect_prompt()
+                if chunk:
+                    out = chunk
+                if chunk.strip():
+                    break
         finally:
             self.child.timeout = old_timeout
         return out
