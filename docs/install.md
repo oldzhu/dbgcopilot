@@ -4,7 +4,7 @@ This guide walks through installing the published packages rather than building 
 
 ## Prerequisites
 - Python 3.11 or newer (Ubuntu 22.04 ships 3.10; install a newer interpreter or use `pyenv`).
-- native debugger tooling: GDB, LLDB, Delve, Radare2, Rust toolchain, Go/Delve, and a headless JDK for `jdb`. The [`Dockerfile`](../Dockerfile) documents the exact packages we include in the dev image.
+- native debugger tooling: GDB, LLDB, Delve, Radare2, Rust toolchain, Go/Delve, and a headless JDK for `jdb`. The [`Dockerfile`](../Dockerfile) documents the exact packages we include in the dev image and contains the commands used to set up the supported debuggers.
 - Optional helper utilities: `pip`, `virtualenv`, `curl`.
 
 Both `dbgcopilot` and `dbgagent` print a reminder about missing debugger binaries (and link back to this section) when the runtime checks detect that those tools are not on `PATH`.
