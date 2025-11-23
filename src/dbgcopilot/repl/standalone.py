@@ -365,30 +365,25 @@ def _select_jdb() -> str:
 def _select_lldb_rust() -> str:
     global BACKEND, ORCH
     s = _ensure_session()
-    api_error: Optional[Exception] = None
-    backend_label = "LLDB (rust-friendly API backend)."
-
+    backend_label = "LLDB (rust-friendly subprocess backend)."
     try:
-        from dbgcopilot.backends.lldb_rust_api import LldbRustApiBackend
+        from dbgcopilot.backends.lldb_rust import LldbRustBackend
 
-        BACKEND = LldbRustApiBackend()
+        BACKEND = LldbRustBackend()
         BACKEND.initialize_session()
-    except Exception as exc_api:
-        api_error = exc_api
+    except Exception as sub_err:
         BACKEND = None
+        # Subprocess capture issues are under investigation; fall back to API when this fails.
+        try:
+            from dbgcopilot.backends.lldb_rust_api import LldbRustApiBackend
 
-    if BACKEND is None:
-        # Disable the subprocess backend temporarily while we fix the capture issues.
-        detail = (
-            "LLDB (rust-friendly API backend) failed to initialize."
-            " The subprocess backend is currently disabled until we resolve its output capture issues."
-        )
-        if api_error:
-            detail += f" API error: {api_error}"
-        return detail
-    if api_error:
-        # API succeeded; clear error to avoid stale reference.
-        api_error = None
+            BACKEND = LldbRustApiBackend()
+            BACKEND.initialize_session()
+            backend_label = "LLDB (rust-friendly API backend; subprocess capture unstable)."
+        except Exception as api_err:
+            detail = f"Failed to start lldb-rust subprocess backend: {sub_err}."
+            detail += f" API backend error: {api_err}."
+            return detail
 
     ORCH = CopilotOrchestrator(BACKEND, s)
     _install_output_sink(s)
@@ -814,21 +809,30 @@ def _handle_llm(cmd: str) -> str:
 def _select_lldb() -> str:
     global BACKEND, ORCH
     s = _ensure_session()
-    # Prefer the LLDB Python API backend (robust capture) and fall back to the
-    # subprocess backend only if the Python module isn't available.
+    backend_label = "LLDB (subprocess backend)."
     try:
-        from dbgcopilot.backends.lldb_api import LldbApiBackend
-        BACKEND = LldbApiBackend()
+        from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
+
+        BACKEND = LldbSubprocessBackend()
         BACKEND.initialize_session()
-        ORCH = CopilotOrchestrator(BACKEND, s)
-        _install_output_sink(s)
-        return "Using LLDB (API backend)."
-    except Exception as api_err:
-        return (
-            f"LLDB API backend failed to initialize: {api_err}."
-            " The subprocess backend is temporarily disabled until the pexpect output capture issue is resolved.\n"
-            + _lldb_install_hint()
-        )
+    except Exception as sub_err:
+        BACKEND = None
+        try:
+            from dbgcopilot.backends.lldb_api import LldbApiBackend
+
+            BACKEND = LldbApiBackend()
+            BACKEND.initialize_session()
+            backend_label = "LLDB (API backend; subprocess capture unstable)."
+        except Exception as api_err:
+            detail = (
+                f"Failed to start LLDB subprocess backend: {sub_err}."
+                f" API backend error: {api_err}.\n"
+            )
+            detail += _lldb_install_hint()
+            return detail
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    _install_output_sink(s)
+    return f"Using {backend_label}"
 
 
 def main(argv: Optional[list[str]] = None) -> int:
