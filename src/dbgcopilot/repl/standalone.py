@@ -186,7 +186,7 @@ def _select_delve() -> str:
     if err := _ensure_tool(
         "dlv",
         "Delve (dlv) executable",
-        "Install Delve through `go install github.com/go-delve/delve/cmd/dlv@latest` and make sure `dlv` is on PATH before picking this backend.",
+        "Install Delve through `sudo apt install delve` or `go install github.com/go-delve/delve/cmd/dlv@latest` and make sure `dlv` is on PATH before picking this backend.",
     ):
         return err
 
