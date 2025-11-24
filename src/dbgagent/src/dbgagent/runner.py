@@ -397,7 +397,7 @@ class DebugAgentRunner:
             from dbgcopilot.llm import openrouter as _or
 
             ask_fn = _or.create_provider(session_config=self.session_config)
-        elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "llama-cpp", "modelscope"}:
+        elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "zhipuglm", "llama-cpp", "modelscope"}:
             from dbgcopilot.llm import openai_compat as _oa
 
             ask_fn = _oa.create_provider(session_config=self.session_config, name=provider)

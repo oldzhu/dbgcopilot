@@ -93,7 +93,7 @@ def _get_cfg(
     elif name == "kimi":
         base_url = base_url or "https://api.moonshot.cn"
         model = model or "kimi-k2-0905-preview"
-    elif name == "glm":
+    elif name == "zhipuglm":
         base_url = base_url or "https://open.bigmodel.cn/api/paas/v4"
         if not path_override:
             path = "/chat/completions"

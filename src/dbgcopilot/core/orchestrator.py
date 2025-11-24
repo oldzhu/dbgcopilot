@@ -660,7 +660,7 @@ def _call_llm(provider_name: str, question: str, state: SessionState) -> str:
         from dbgcopilot.llm import openrouter as _or
         ask_fn = _or.create_provider(session_config=state.config)
         return ask_fn(question)
-    if provider_name in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "llama-cpp", "modelscope"}:
+    if provider_name in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "zhipuglm", "llama-cpp", "modelscope"}:
         from dbgcopilot.llm import openai_compat as _oa
         ask_fn = _oa.create_provider(session_config=state.config, name=provider_name)
         return ask_fn(question)

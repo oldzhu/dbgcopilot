@@ -164,7 +164,7 @@ def start_repl():  # pragma: no cover - gdb environment
                                     gdb.write(f"- {m}\n")
                         except Exception as e:
                             gdb.write(f"[copilot] Error listing models: {e}\n")
-                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
+                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "zhipuglm", "modelscope"}:
                         try:
                             from dbgcopilot.llm import openai_compat as _oa
                             models = _oa.list_models(SESSION.config, name=provider)
@@ -194,7 +194,7 @@ def start_repl():  # pragma: no cover - gdb environment
                     elif provider == "openrouter":
                         SESSION.config["openrouter_model"] = model
                         gdb.write(f"[copilot] OpenRouter model set to: {model}\n")
-                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
+                    elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "zhipuglm", "modelscope"}:
                         key = provider.replace("-", "_") + "_model"
                         SESSION.config[key] = model
                         gdb.write(f"[copilot] {provider} model set to: {model}\n")
@@ -211,7 +211,7 @@ def start_repl():  # pragma: no cover - gdb environment
                                 gdb.write("[copilot] OpenRouter API key set for this session.\n")
                             else:
                                 gdb.write("[copilot] Missing API key.\n")
-                        elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "glm", "modelscope"}:
+                        elif provider in {"openai-http", "ollama", "deepseek", "qwen", "kimi", "zhipuglm", "modelscope"}:
                             if api_key:
                                 key = provider.replace("-", "_") + "_api_key"
                                 SESSION.config[key] = api_key

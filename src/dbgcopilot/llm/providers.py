@@ -118,7 +118,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
                 "web_search": "extras.enable_web_search",
             },
         },
-        "glm": {
+        "zhipuglm": {
             "kind": "openai-compatible",
             "description": "Zhipu GLM OpenAI-compatible API",
             "base_url": "https://open.bigmodel.cn/api/paas/v4",
