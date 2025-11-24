@@ -6,7 +6,7 @@ an external JSON file without changing code. See /prompts commands in the REPL.
 from __future__ import annotations
 
 DEFAULT_PROMPT_CONFIG = {
-    "max_context_chars": 16000,
+    "max_context_chars": 4096 * 1024,
     "system_preamble": (
         "You are a debugging copilot embedded inside {debugger}.\n"
         "Interaction mode: human-in-the-loop. Whenever you believe a debugger command should run, include it inside <cmd>...</cmd> right away;\n"
