@@ -16,6 +16,8 @@ import os
 import json
 from dbgcopilot.prompts.defaults import DEFAULT_PROMPT_CONFIG
 
+DEFAULT_MAX_CONTEXT_CHARS = int(DEFAULT_PROMPT_CONFIG.get("max_context_chars", 16000))
+
 
 class CopilotOrchestrator:
     """Placeholder orchestrator.
@@ -308,7 +310,7 @@ class CopilotOrchestrator:
         prev_lines = list(self.state.chatlog)
         prev_lines.append(f"User: {text}")
 
-        MAX_CONTEXT_CHARS = int(self.prompt_config.get("max_context_chars", 16000))
+        MAX_CONTEXT_CHARS = int(self.prompt_config.get("max_context_chars", DEFAULT_MAX_CONTEXT_CHARS))
         transcript_for_llm = "\n".join(prev_lines)
         if len(transcript_for_llm) > MAX_CONTEXT_CHARS:
             choice = text.lower()
