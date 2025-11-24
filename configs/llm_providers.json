@@ -84,6 +84,15 @@
         "web_search": "extras.enable_web_search"
       }
     },
+    "gemini": {
+      "kind": "openai-compatible",
+      "description": "Google Gemini OpenAI-compatible API",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "path": "/chat/completions",
+      "default_model": "gemini-2.5-flash",
+      "supports_model_list": true,
+      "capabilities": ["temperature", "max_tokens", "top_p", "stop_sequences"]
+    },
     "llama-cpp": {
       "kind": "openai-compatible",
       "description": "llama.cpp local server (OpenAI-compatible)",

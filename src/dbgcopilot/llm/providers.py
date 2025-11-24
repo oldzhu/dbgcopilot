@@ -137,7 +137,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
         "gemini": {
             "kind": "openai-compatible",
-            "description": "Google Gemini OpenAI-compatible API (see https://ai.google.dev/gemini-api/docs/openai)",
+            "description": "Google Gemini OpenAI-compatible API",
             "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
             "path": "/chat/completions",
             "default_model": "gemini-2.5-flash",

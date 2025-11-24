@@ -23,7 +23,6 @@ Notes:
     - glm (ZhipuAI): base https://open.bigmodel.cn (path `/api/paas/v4/chat/completions`), model `glm-4`
     - llama-cpp: base http://localhost:8080 (llama.cpp server with `--api`), model `llama`
     - modelscope: base https://api-inference.modelscope.cn, model `deepseek-ai/DeepSeek-R1-Distill-Llama-8B`
-        - gemini: base https://generativelanguage.googleapis.com/v1beta/openai, path `/chat/completions`, model `gemini-2.5-flash` (see https://ai.google.dev/gemini-api/docs/openai for setup)
-            - Model listing (`/v1beta/openai/models`) requires the same API key in the Authorization header, so provide it before calling `/llm list`.
+    - gemini: base https://generativelanguage.googleapis.com/v1beta/openai, path `/chat/completions`, model `gemini-2.5-flash` (see https://ai.google.dev/gemini-api/docs/openai for setup); `GET /models` requests require the same API key as completions, so set it before running `/llm list`.
 - You can switch providers anytime with `/llm use <name>`.
 - Colors are enabled by default; toggle with `/colors on|off`.
