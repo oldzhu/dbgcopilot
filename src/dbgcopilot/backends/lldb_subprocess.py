@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from typing import Optional, List
 import re
-import os
-from glob import glob
 
 try:
     import pexpect
 except Exception:
     pexpect = None  # type: ignore
+
+
+_DWARF_INDEXING_RE = re.compile(r"^\s*\[\d+/\d+\]\s+Manually indexing DWARF:.*$")
 
 
 class LldbSubprocessBackend:
@@ -30,6 +31,7 @@ class LldbSubprocessBackend:
         self._empty_count: int = 0
         self._empty_threshold: int = 2
         self._suggested_once: bool = False
+        self._ansi_seqs = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
     def initialize_session(self) -> None:
         if pexpect is None:
@@ -37,22 +39,25 @@ class LldbSubprocessBackend:
         # Launch LLDB. Use encoding for string I/O.
         self.child = pexpect.spawn(self.lldb_path, [], encoding="utf-8", timeout=self.timeout)
         # Immediately set a simple prompt we can match reliably, then expect it
-        try:
-            # Disable colors for cleaner capture and set a simple prompt we can regex reliably
-            self.child.sendline("settings set use-color false")
-            self.child.sendline(f"settings set prompt {self.prompt} ")
-        except Exception:
-            pass
-        # Use custom prompt pattern for subsequent expects
         ansi = r"(?:\x1b\[[0-9;]*m)*"
-        self._prompt_re = re.compile(ansi + re.escape(self.prompt) + ansi + r"\s*")
         try:
+            # Flush the default prompt before switching to our own
             self._expect_prompt()
         except Exception:
-            # Nudge with a newline and try again
+            pass
+        try:
+            # Send the custom prompt before expecting it with the new regex
+            self.child.sendline(f"settings set prompt {self.prompt} ")
+            self._prompt_re = re.compile(ansi + re.escape(self.prompt) + ansi + r"\s*")
+            self._expect_prompt()
+        except Exception:
+            # Nudge with a newline and try again in case the prompt change emitted extra noise
             try:
                 self.child.sendline("")
-                self._expect_prompt()
+                if self._prompt_re:
+                    self._expect_prompt()
+                else:
+                    self.child.expect(self._default_prompt_re)
             except Exception:
                 pass
         # Configure non-interactive friendly behavior (after prompt is set)
@@ -60,38 +65,7 @@ class LldbSubprocessBackend:
             self._send_and_capture("settings set auto-confirm true")
         except Exception:
             pass
-        # Best-effort lldb-server configuration to avoid 'unable to locate lldb-server-<ver>'
-        try:
-            path = self._find_lldb_server()
-            if path:
-                # Try multiple known setting keys across LLDB versions
-                keys = [
-                    "target.lldb-server",
-                    "plugin.process.gdb-remote.lldb-server",
-                    "plugin.process.gdb-remote.lldb-server-path",
-                    "platform.plugin.remote-linux.lldb-server",
-                ]
-                for k in keys:
-                    try:
-                        self._send_and_capture(f"settings set {k} {path}")
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-
-    def _find_lldb_server(self) -> Optional[str]:
-        env_path = os.environ.get("LLDB_SERVER_PATH")
-        if env_path and os.path.isfile(env_path):
-            return env_path
-        candidates: list[str] = []
-        patterns = [
-            "/usr/bin/lldb-server*",
-            "/usr/lib/llvm-*/bin/lldb-server*",
-        ]
-        for pat in patterns:
-            candidates.extend(glob(pat))
-        candidates = sorted({p for p in candidates if os.path.isfile(p)}, key=len, reverse=True)
-        return candidates[0] if candidates else None
+        # Configuration that changes color/behavior will respect `/colors` later.
 
 
     def _expect_prompt(self) -> str:
@@ -102,6 +76,30 @@ class LldbSubprocessBackend:
         self.child.expect(pat)
         return self.child.before or ""
 
+    def _strip_ansi(self, chunk: str) -> str:
+        return self._ansi_seqs.sub("", chunk)
+
+    def _filter_dwarf_noise(self, text: str) -> str:
+        if not text:
+            return text
+        noisy_prefixes = (
+            "Locating external symbol file:",
+            "Parsing symbol table:",
+            "Reading binary from memory:",
+        )
+        lines = text.splitlines()
+        filtered: List[str] = []
+        for ln in lines:
+            stripped = self._strip_ansi(ln).strip()
+            if not stripped:
+                continue
+            if _DWARF_INDEXING_RE.match(stripped):
+                continue
+            if any(stripped.startswith(pref) for pref in noisy_prefixes):
+                continue
+            filtered.append(ln)
+        return "\n".join(filtered)
+
     def _send_and_capture_raw(self, cmd: str, timeout: Optional[float] = None) -> str:
         if not self.child:
             raise RuntimeError("LLDB subprocess is not running")
@@ -111,20 +109,32 @@ class LldbSubprocessBackend:
             self.child.timeout = timeout
         try:
             out = ""
-            for _ in range(5):
+            sanitized = cmd.replace("\r", "").split("\n", 1)[0].strip()
+            max_cycles = 8
+            last_chunk = ""
+            for _ in range(max_cycles):
                 chunk = self._expect_prompt()
-                if chunk:
-                    out = chunk
-                if chunk.strip():
+                last_chunk = chunk
+                if not chunk:
+                    continue
+                stripped = self._strip_ansi(chunk)
+                if not stripped.strip():
+                    continue
+                out = chunk
+                if sanitized and stripped.lstrip().startswith(sanitized):
+                    break
+                if not sanitized:
                     break
         finally:
             self.child.timeout = old_timeout
-        return out
+        return out or last_chunk
 
     def _send_and_capture(self, cmd: str, timeout: Optional[float] = None) -> str:
         # Wrap raw capture and remove any echoed command line
         out = self._send_and_capture_raw(cmd, timeout=timeout)
-        text = out.lstrip("\r\n")
+        raw = out or ""
+        filtered = self._filter_dwarf_noise(raw)
+        text = filtered.lstrip("\r\n")
         lines = text.splitlines()
         if lines and lines[0].strip() == cmd.strip():
             lines = lines[1:]
