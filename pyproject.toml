@@ -18,6 +18,12 @@ dependencies = [
 	"r2pipe>=1.9",
 ]
 
+[tool.setuptools]
+packages = {find = {where = ["src"]}}
+
+[tool.setuptools.package-data]
+"dbgweb" = ["static/*"]
+
 [project.urls]
 Homepage = "https://github.com/oldzhu/dbgcopilot"
 
