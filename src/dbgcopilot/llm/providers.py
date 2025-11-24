@@ -265,8 +265,15 @@ def _load_config(refresh: bool = False) -> Dict[str, Any]:
         data_dict: Dict[str, Any] = cast(Dict[str, Any], loaded) if isinstance(loaded, dict) else {}
         providers = data_dict.get("providers")
         if not isinstance(providers, dict):
-            data_dict["providers"] = {}
-        _config_cache = data_dict
+            providers = {}
+            data_dict["providers"] = providers
+        else:
+            providers = data_dict["providers"]
+        if _merge_default_providers(providers):
+            _save_config(data_dict)
+            data_dict = _config_cache
+        else:
+            _config_cache = data_dict
     return _config_cache
 
 
@@ -293,6 +300,16 @@ def _provider_defaults(meta: Dict[str, Any]) -> Dict[str, Any]:
         if key in meta and meta.get(key) not in {None, ""}:
             defaults[key] = meta.get(key)
     return defaults
+
+
+def _merge_default_providers(providers: Dict[str, Any]) -> bool:
+    defaults = DEFAULT_CONFIG.get("providers") or {}
+    merged = False
+    for name, entry in defaults.items():
+        if name not in providers:
+            providers[name] = dict(entry)
+            merged = True
+    return merged
 
 
 def _build_provider(name: str, entry: Dict[str, Any]) -> Optional[Provider]:
