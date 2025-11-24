@@ -10,7 +10,7 @@ from .api.routes import router as api_router
 from .ws.routes import ws_router
 
 
-app = FastAPI(title="Debugger Copilot Web UI", version="0.1.0")
+app = FastAPI(title="Debugger Copilot", version="0.1.0")
 
 
 def _static_dir() -> Path:
