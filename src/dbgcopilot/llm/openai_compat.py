@@ -310,9 +310,12 @@ def list_models(
     if not base_url:
         raise RuntimeError(f"{name}: base_url not configured; cannot list models")
 
-    # 1) Try OpenAI-compatible /v1/models
+    # 1) Try OpenAI-compatible /v1/models (Gemini uses a different path)
     try:
-        url = f"{base_url}/v1/models"
+        if name == "gemini":
+            url = f"{base_url.rstrip('/')}/models"
+        else:
+            url = f"{base_url}/v1/models"
         resp = requests.get(url, headers=headers, timeout=15)
         if 200 <= resp.status_code < 300:
             try:

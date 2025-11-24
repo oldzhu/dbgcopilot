@@ -135,6 +135,19 @@ DEFAULT_CONFIG: Dict[str, Any] = {
                 "web_search": "extras.enable_web_search",
             },
         },
+        "gemini": {
+            "kind": "openai-compatible",
+            "description": "Google Gemini OpenAI-compatible API (see https://ai.google.dev/gemini-api/docs/openai)",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+            "path": "/chat/completions",
+            "default_model": "gemini-2.5-flash",
+            "capabilities": [
+                "temperature",
+                "max_tokens",
+                "top_p",
+                "stop_sequences",
+            ],
+        },
         "llama-cpp": {
             "kind": "openai-compatible",
             "description": "llama.cpp local server (OpenAI-compatible)",
