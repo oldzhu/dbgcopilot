@@ -106,7 +106,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "description": "Kimi (Moonshot) OpenAI-compatible API",
             "base_url": "https://api.moonshot.cn",
             "path": "/v1/chat/completions",
-            "default_model": "moonshot-v1-8k",
+            "default_model": "kimi-k2-0905-preview",
             "capabilities": [
                 "temperature",
                 "max_tokens",
