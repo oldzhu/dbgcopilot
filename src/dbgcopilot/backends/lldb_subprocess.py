@@ -32,6 +32,7 @@ class LldbSubprocessBackend:
         self._empty_threshold: int = 2
         self._suggested_once: bool = False
         self._ansi_seqs = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+        self._timeout_reported: bool = False
 
     def initialize_session(self) -> None:
         if pexpect is None:
@@ -66,6 +67,7 @@ class LldbSubprocessBackend:
         except Exception:
             pass
         # Configuration that changes color/behavior will respect `/colors` later.
+        self._timeout_reported = False
 
 
     def _expect_prompt(self) -> str:
@@ -131,7 +133,16 @@ class LldbSubprocessBackend:
 
     def _send_and_capture(self, cmd: str, timeout: Optional[float] = None) -> str:
         # Wrap raw capture and remove any echoed command line
-        out = self._send_and_capture_raw(cmd, timeout=timeout)
+        try:
+            out = self._send_and_capture_raw(cmd, timeout=timeout)
+        except pexpect.TIMEOUT as e:  # type: ignore[attr-defined]
+            if self._timeout_reported:
+                return ""
+            self._timeout_reported = True
+            return f"[lldb timeout] {cmd}: {e}"
+        except pexpect.EOF:  # type: ignore[attr-defined]
+            self._shutdown_child()
+            return ""
         raw = out or ""
         filtered = self._filter_dwarf_noise(raw)
         text = filtered.lstrip("\r\n")
@@ -141,6 +152,15 @@ class LldbSubprocessBackend:
             if first_clean == cmd.strip():
                 lines = lines[1:]
         return "\n".join(lines)
+
+    def _shutdown_child(self) -> None:
+            try:
+                if self.child and self.child.isalive():
+                    self.child.close(force=True)
+            except Exception:
+                pass
+            finally:
+                self.child = None
 
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
         if not self.child:
@@ -172,6 +192,10 @@ class LldbSubprocessBackend:
                 outputs.append(f"[lldb error] {part}: {e}")
                 continue
             norm = (out or "").replace("\r\n", "\n")
+            if norm.startswith("[lldb timeout]"):
+                self._empty_count += 1
+                outputs.append(norm)
+                continue
             if norm.strip():
                 self._empty_count = 0
             else:
