@@ -140,8 +140,7 @@ class LldbSubprocessBackend:
             first_clean = self._strip_ansi(lines[0]).strip()
             if first_clean == cmd.strip():
                 lines = lines[1:]
-        cleaned = [self._strip_ansi(ln) for ln in lines]
-        return "\n".join(cleaned)
+        return "\n".join(lines)
 
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
         if not self.child:
