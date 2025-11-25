@@ -135,11 +135,11 @@ class LldbSubprocessBackend:
         # Wrap raw capture and remove any echoed command line
         try:
             out = self._send_and_capture_raw(cmd, timeout=timeout)
-        except pexpect.TIMEOUT as e:  # type: ignore[attr-defined]
+        except pexpect.TIMEOUT:  # type: ignore[attr-defined]
             if self._timeout_reported:
                 return ""
             self._timeout_reported = True
-            return f"[lldb timeout] {cmd}: {e}"
+            return f"[lldb timeout] {cmd}: Timeout exceeded."
         except pexpect.EOF:  # type: ignore[attr-defined]
             self._shutdown_child()
             return ""
@@ -180,10 +180,10 @@ class LldbSubprocessBackend:
         for part in parts:
             try:
                 out = self._send_and_capture(part, timeout=timeout)
-            except pexpect.TIMEOUT as e:  # type: ignore[attr-defined]
+            except pexpect.TIMEOUT:  # type: ignore[attr-defined]
                 # Count timeouts as empty to trigger suggestions
                 self._empty_count += 1
-                outputs.append(f"[lldb timeout] {part}: {e}")
+                outputs.append(f"[lldb timeout] {part}: Timeout exceeded.")
                 continue
             except pexpect.EOF as e:  # type: ignore[attr-defined]
                 outputs.append(f"[lldb eof] {part}: {e}")
