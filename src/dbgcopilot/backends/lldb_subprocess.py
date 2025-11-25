@@ -136,9 +136,12 @@ class LldbSubprocessBackend:
         filtered = self._filter_dwarf_noise(raw)
         text = filtered.lstrip("\r\n")
         lines = text.splitlines()
-        if lines and lines[0].strip() == cmd.strip():
-            lines = lines[1:]
-        return "\n".join(lines)
+        if lines:
+            first_clean = self._strip_ansi(lines[0]).strip()
+            if first_clean == cmd.strip():
+                lines = lines[1:]
+        cleaned = [self._strip_ansi(ln) for ln in lines]
+        return "\n".join(cleaned)
 
     def run_command(self, cmd: str, timeout: float | None = None) -> str:
         if not self.child:
