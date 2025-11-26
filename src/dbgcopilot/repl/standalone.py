@@ -115,8 +115,9 @@ def _print_help() -> str:
             "copilot> commands:",
             "  /help                      Show this help",
             "  /use gdb                   Select GDB (subprocess backend)",
+            "  /use rust-gdb              Select Rust-aware GDB subprocess backend",
             "  /use lldb                  Select LLDB (Python API if available; else subprocess)",
-            "  /use lldb-rust             Select LLDB tuned for Rust binaries",
+            "  /use rust-lldb            Select LLDB tuned for Rust binaries",
             "  /use jdb                   Select jdb (Java debugger backend)",
             "  /use pdb                   Select pdb (Python debugger backend)",
             "  /use delve                 Select Delve for Go binaries",
@@ -173,6 +174,24 @@ def _select_gdb() -> str:
     ORCH = CopilotOrchestrator(BACKEND, s)
     _install_output_sink(s)
     return "Using GDB (subprocess backend)."
+
+
+def _select_rust_gdb() -> str:
+    global BACKEND, ORCH
+    s = _ensure_session()
+    try:
+        from dbgcopilot.backends.rust_gdb import RustGdbBackend
+    except Exception as e:
+        return f"Failed to load rust-gdb backend: {e}"
+    BACKEND = RustGdbBackend()
+    try:
+        BACKEND.initialize_session()
+    except Exception as e:
+        BACKEND = None
+        return f"Failed to start rust-gdb: {e}"
+    ORCH = CopilotOrchestrator(BACKEND, s)
+    _install_output_sink(s)
+    return "Using rust-gdb subprocess backend."
 
 
 def _select_delve() -> str:
@@ -362,10 +381,10 @@ def _select_jdb() -> str:
     return " ".join(details)
 
 
-def _select_lldb_rust() -> str:
+def _select_rust_lldb() -> str:
     global BACKEND, ORCH
     s = _ensure_session()
-    backend_label = "LLDB (rust-friendly subprocess backend)."
+    backend_label = "LLDB (rust-lldb subprocess backend)."
     try:
         from dbgcopilot.backends.lldb_rust import LldbRustBackend
 
@@ -379,9 +398,9 @@ def _select_lldb_rust() -> str:
 
             BACKEND = LldbRustApiBackend()
             BACKEND.initialize_session()
-            backend_label = "LLDB (rust-friendly API backend; subprocess capture unstable)."
+            backend_label = "LLDB (rust-lldb API backend; subprocess capture unstable)."
         except Exception as api_err:
-            detail = f"Failed to start lldb-rust subprocess backend: {sub_err}."
+            detail = f"Failed to start rust-lldb subprocess backend: {sub_err}."
             detail += f" API backend error: {api_err}."
             return detail
 
@@ -841,7 +860,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     _ensure_session()
     _echo(
     "Standalone REPL. Type /help. Choose a debugger with /use <debugger> "
-    "(gdb|lldb|lldb-rust|jdb|pdb|delve|radare2)."
+    "(gdb|rust-gdb|lldb|rust-lldb|jdb|pdb|delve|radare2)."
     )
     while True:
         try:
@@ -870,10 +889,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                 choice = arg.strip().lower()
                 if choice == "gdb":
                     _echo(_select_gdb())
+                elif choice == "rust-gdb":
+                    _echo(_select_rust_gdb())
                 elif choice == "lldb":
                     _echo(_select_lldb())
-                elif choice == "lldb-rust":
-                    _echo(_select_lldb_rust())
+                elif choice in {"rust-lldb", "lldb-rust"}:
+                    _echo(_select_rust_lldb())
                 elif choice in {"pdb", "python"}:
                     _echo(_select_pdb())
                 elif choice == "jdb":
@@ -883,7 +904,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 elif choice == "radare2":
                     _echo(_select_radare2())
                 else:
-                    _echo("Supported: /use gdb | /use lldb | /use lldb-rust | /use jdb | /use pdb | /use delve | /use radare2")
+                    _echo("Supported: /use gdb | /use rust-gdb | /use lldb | /use rust-lldb | /use jdb | /use pdb | /use delve | /use radare2")
                 continue
             if verb == "/new":
                 sid = str(uuid.uuid4())[:8]

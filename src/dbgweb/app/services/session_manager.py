@@ -16,6 +16,7 @@ from dbgcopilot.backends.gdb_subprocess import GdbSubprocessBackend
 from dbgcopilot.backends.lldb_inprocess import LldbInProcessBackend
 from dbgcopilot.backends.lldb_subprocess import LldbSubprocessBackend
 from dbgcopilot.backends.lldb_api import LldbApiBackend
+from dbgcopilot.backends.rust_gdb import RustGdbBackend
 from dbgcopilot.backends.java_jdb import JavaJdbBackend
 
 
@@ -241,13 +242,17 @@ class SessionManager:
         classpath: Optional[str] = None,
         sourcepath: Optional[str] = None,
     ):
+        if debugger == "rust-gdb":
+            backend = RustGdbBackend()
+            backend.initialize_session()
+            return backend
         if debugger == "gdb":
             backend = GdbSubprocessBackend()
             backend.initialize_session()
             return backend
         if debugger == "lldb":
             return self._create_lldb_backend()
-        if debugger == "lldb-rust":
+        if debugger in {"rust-lldb", "lldb-rust"}:
             return self._create_lldb_rust_backend()
         if debugger == "delve":
             if not program:
@@ -331,9 +336,9 @@ class SessionManager:
     def _load_program_for_backend(self, session: Session, program: str) -> Optional[str]:
         backend = session.debugger_backend
         name = getattr(backend, "name", "").lower()
-        if name == "gdb":
+        if name in {"gdb", "rust-gdb"}:
             return backend.run_command(f"file {program}")
-        if name in {"lldb", "lldb-rust"}:
+        if name in {"lldb", "rust-lldb", "lldb-rust"}:
             return backend.run_command(f"file {program}")
         if name == "delve":
             return getattr(backend, "startup_output", "")
@@ -346,9 +351,9 @@ class SessionManager:
     def _load_corefile_for_backend(self, session: Session, corefile: str) -> Optional[str]:
         backend = session.debugger_backend
         name = getattr(backend, "name", "").lower()
-        if name == "gdb":
+        if name in {"gdb", "rust-gdb"}:
             return backend.run_command(f"core-file {corefile}")
-        if name in {"lldb", "lldb-rust"}:
+        if name in {"lldb", "rust-lldb", "lldb-rust"}:
             return backend.run_command(f"target create -c {corefile}")
         return None
 
@@ -378,8 +383,8 @@ class SessionManager:
                 if backend_prompt:
                     prompt_variants.append(strip_ansi(backend_prompt).strip().lower())
                 prompt_variants.extend(["(gdb)", "gdb>", "(lldb)", "lldb>"])
-                if backend_name == "lldb-rust":
-                    prompt_variants.extend(["(lldb-rust)", "lldb-rust>"])
+                if backend_name in {"rust-lldb", "lldb-rust"}:
+                    prompt_variants.extend(["(rust-lldb)", "rust-lldb>", "(lldb-rust)", "lldb-rust>"])
                 if backend_name in {"pdb", "python"}:
                     prompt_variants.extend(["(pydb)", "pdb>"])
                 if backend_name == "jdb":

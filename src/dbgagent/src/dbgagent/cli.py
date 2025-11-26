@@ -16,7 +16,9 @@ from .runner import AgentRequest, DebugAgentRunner
 
 SUPPORTED_DEBUGGERS = [
     "gdb",
+    "rust-gdb",
     "lldb",
+    "rust-lldb",
     "lldb-rust",
     "jdb",
     "pdb",
@@ -127,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.main_class:
             parser.error("jdb debugger requires --main-class (fully qualified entry point)")
     else:
-        if debugger in {"delve", "radare2", "pdb", "lldb-rust"} and not args.program:
+        if debugger in {"delve", "radare2", "pdb", "rust-lldb", "lldb-rust"} and not args.program:
             parser.error(f"{debugger} debugger requires --program")
 
     log_enabled = bool(args.log_session or args.log_file or os.getenv("DBGAGENT_LOG"))

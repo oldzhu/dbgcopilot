@@ -135,8 +135,13 @@ class DebugAgentRunner:
             backend.initialize_session()
         elif debugger == "lldb":
             backend = self._create_lldb_backend()
-        elif debugger == "lldb-rust":
+        elif debugger in {"rust-lldb", "lldb-rust"}:
             backend = self._create_lldb_rust_backend()
+        elif debugger == "rust-gdb":
+            from dbgcopilot.backends.rust_gdb import RustGdbBackend
+
+            backend = RustGdbBackend()
+            backend.initialize_session()
         elif debugger == "delve":
             if not self.request.program:
                 raise ValueError("Delve debugger requires a program path")
@@ -246,12 +251,12 @@ class DebugAgentRunner:
         commands: list[str] = []
         debugger = self.request.debugger
 
-        if debugger == "gdb":
+        if debugger in {"gdb", "rust-gdb"}:
             if self.request.program:
                 commands.append(f"file {self.request.program}")
             if self.request.corefile:
                 commands.append(f"core-file {self.request.corefile}")
-        elif debugger in {"lldb", "lldb-rust"}:
+        elif debugger in {"lldb", "rust-lldb", "lldb-rust"}:
             if self.request.program and self.request.corefile:
                 commands.append(
                     f"target create {self.request.program} --core {self.request.corefile}"

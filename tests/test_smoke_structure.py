@@ -9,3 +9,4 @@ def test_structure_exists():
     assert importlib.import_module("dbgcopilot.backends.lldb_rust")
     assert importlib.import_module("dbgcopilot.backends.lldb_rust_api")
     assert importlib.import_module("dbgcopilot.backends.java_jdb")
+    assert importlib.import_module("dbgcopilot.backends.rust_gdb")

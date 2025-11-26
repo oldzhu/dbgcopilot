@@ -85,6 +85,21 @@ copilot> /exec version
 copilot> /exec help thread backtrace
 ```
 
+Using Rust-aware LLDB (`rust-lldb`):
+
+```
+copilot> /use rust-lldb
+copilot> /exec version
+copilot> /exec help thread backtrace
+```
+
+Using Rust-aware GDB (`rust-gdb`):
+
+```
+copilot> /use rust-gdb
+copilot> /exec help breakpoints
+```
+
 *Notes*:
 - The GDB subprocess backend sets pagination/width/height for non-interactive output and disables confirm prompts.
 - The LLDB path prefers the Python API backend (robust, prompt-free capture); it falls back to a subprocess backend that sets auto-confirm and a simple prompt when bindings are unavailable.

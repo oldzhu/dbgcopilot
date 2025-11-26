@@ -13,13 +13,13 @@ from .lldb_api import LldbApiBackend
 
 
 class LldbRustApiBackend(LldbApiBackend):
-    name = "lldb-rust"
+    name = "rust-lldb"
 
     def __init__(self, use_color: bool = True) -> None:
         super().__init__(use_color=use_color)
         # Expose a prompt consistent with the subprocess backend so the REPL
         # can strip it when formatting output.
-        self.prompt = "(lldb-rust) "
+        self.prompt = "(rust-lldb) "
 
     def initialize_session(self) -> None:
         super().initialize_session()
@@ -28,7 +28,7 @@ class LldbRustApiBackend(LldbApiBackend):
     def _apply_rust_defaults(self) -> None:
         commands: Iterable[str] = (
             "settings set target.process.thread.step-avoid-regexp '^(__rust_begin_short_backtrace|core::|std::)'",
-            "settings set prompt (lldb-rust) ",
+            "settings set prompt (rust-lldb) ",
             "command alias bt backtrace",
         )
         for cmd in commands:

@@ -1416,7 +1416,9 @@ if (debuggerSelect) {
     let placeholder = "path to binary";
     if (isPythonDebugger) {
       placeholder = "path to script.py";
-    } else if (value === "lldb-rust") {
+    } else if (value === "rust-gdb") {
+      placeholder = "path to Rust binary";
+    } else if (value === "rust-lldb" || value === "lldb-rust") {
       placeholder = "path to Rust binary";
     }
 
@@ -1728,12 +1730,12 @@ startSessionButton.addEventListener("click", async () => {
     payload.program = programValue || null;
   }
 
-  const requiresProgram = ["delve", "radare2", "lldb-rust"].includes(debuggerId) || isPythonDebugger;
+  const requiresProgram = ["delve", "radare2", "rust-lldb", "lldb-rust"].includes(debuggerId) || isPythonDebugger;
   if (requiresProgram && !programValue) {
     let requirement = "the program field to point to the binary you want to debug.";
     if (isPythonDebugger) {
       requirement = "the program field to point to the Python script you want to debug.";
-    } else if (debuggerId === "lldb-rust") {
+    } else if (debuggerId === "rust-lldb" || debuggerId === "lldb-rust") {
       requirement = "the program field to point to the compiled Rust binary.";
     }
     appendChatEntry("assistant", `[chat] ${debuggerId} requires ${requirement}`);

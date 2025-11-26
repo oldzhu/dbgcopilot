@@ -15,7 +15,7 @@ $(TARGET): $(MANIFEST) $(SOURCES) | $(BINDIR)
 		echo "cargo not found; install Rust toolchain to build $@"; \
 		exit 1; \
 	fi
-	$(CARGO) build --manifest-path $(MANIFEST)
+	RUSTFLAGS="-C remark=location -C debuginfo=2" $(CARGO) build --manifest-path $(MANIFEST)
 	cp target/debug/$(CRATE) $@
 
 clean:

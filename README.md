@@ -1,7 +1,7 @@
 # Debugger Copilot
 
 ## Overview
-Debugger Copilot is an AI-assisted debugging copilot that works with GDB, LLDB, Delve, Radare2, jdb (Java debugger), and pdb (Python debugger). It summarizes outputs, suggests next commands, and orchestrates goal-driven plans while keeping you in control through natural-language prompts.
+Debugger Copilot is an AI-assisted debugging copilot that works with GDB, LLDB, Delve, Radare2, jdb (Java debugger), and pdb (Python debugger). Rust-aware wrappers such as `rust-gdb` and `rust-lldb` are also supported for Cargo-built experiences. It summarizes outputs, suggests next commands, and orchestrates goal-driven plans while keeping you in control through natural-language prompts.
 
 ## Demo highlights
 - `dbgcopilot` interactive REPL covering GDB/LLDB/Delve/Radare2/jdb/pdb backends.

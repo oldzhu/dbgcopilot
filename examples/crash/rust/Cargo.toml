@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.dev]
-debug = true
+debug = 2
 
 [dependencies]
