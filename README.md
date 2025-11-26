@@ -6,9 +6,18 @@ Debugger Copilot is an AI-assisted debugging copilot that works with GDB, LLDB, 
 ## Demo highlights
 - `dbgcopilot` interactive REPL covering GDB/LLDB/Delve/Radare2/jdb/pdb backends.
 - The FastAPI-powered `dbgweb` dashboard.
-- The fully autonomous `dbgagent` CLI.
+- The fully autonomous `dbgagent` CLI (demo coming soon).
 
-Supply GIFs or short videos under `docs/media/` and point to them from this section to showcase each workflow.
+| Demo | Quick look |
+| --- | --- |
+| [<img src="docs/media/dbgcopilot-gdb-001.svg" alt="GDB crash" width="240" />](docs/media/dbgcopilot-gdb-001.gif) | `gdb`: crash investigation through the GDB subprocess backend |
+| [<img src="docs/media/dbgcopilot-radare2-001.svg" alt="radare2 crash" width="240" />](docs/media/dbgcopilot-radare2-001.gif) | `radare2`: raw binary analysis with Copilot guidance |
+
+More demos are available in [docs/media](docs/media/README.md) (click any tile there to open the GIF replay for that debugger).
+
+| Demo | Quick look |
+| --- | --- |
+| [<img src="docs/media/dbgcopilot-web-001.svg" alt="dbgweb dashboard" width="240" />](docs/media/dbgcopilot-web-001.gif) | `dbgweb`: FastAPI dashboard controlling Copilot sessions |
 
 ## Quick links
 - [Installation & Testing](docs/install.md)
