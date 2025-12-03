@@ -5,7 +5,7 @@ prompt-parsing issues and produces stable command output.
 """
 from __future__ import annotations
 
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Tuple
 import os
 import tempfile
 
@@ -97,12 +97,13 @@ class Radare2SubprocessBackend:
                 outputs.append(self._handle_exit(part))
                 break
             self._clear_logs()
+            err = ""
             try:
-                out = self._execute(part)
+                out, err = self._execute(part)
             except Exception as exc:
                 logs = self._drain_logs()
                 self._update_prompt()
-                combined = self._merge_output("", logs)
+                combined = self._merge_output("", logs, err)
                 if combined:
                     outputs.append(combined)
                 else:
@@ -117,7 +118,7 @@ class Radare2SubprocessBackend:
                 continue
             logs = self._drain_logs()
             self._update_prompt()
-            combined = self._merge_output(out, logs)
+            combined = self._merge_output(out, logs, err)
             if combined:
                 outputs.append(combined)
         return "\n".join(chunk for chunk in outputs if chunk)
@@ -144,11 +145,33 @@ class Radare2SubprocessBackend:
             except Exception:
                 pass
 
-    def _execute(self, command: str) -> str:
+    def _execute(self, command: str) -> tuple[str, str]:
         if self._r2 is None:
             raise RuntimeError("radare2 session is not running")
-        output = self._r2.cmd(command)
-        return self._sanitize_output(output)
+
+        stdout_text, stderr_text = self._run_with_stderr_capture(lambda: self._r2.cmd(command))
+        return self._sanitize_output(stdout_text), self._sanitize_output(stderr_text)
+
+    def _run_with_stderr_capture(self, fn: Any) -> tuple[str, str]:
+        read_fd, write_fd = os.pipe()
+        saved_err = os.dup(2)
+        try:
+            os.dup2(write_fd, 2)
+            os.close(write_fd)
+            stdout_text = fn()
+        finally:
+            os.dup2(saved_err, 2)
+            os.close(saved_err)
+        stderr_text = ""
+        try:
+            with os.fdopen(read_fd, "r", encoding="utf-8", errors="ignore") as handle:
+                stderr_text = handle.read()
+        except Exception:
+            try:
+                os.close(read_fd)
+            except Exception:
+                pass
+        return stdout_text, stderr_text
 
     def _sanitize_output(self, text: str) -> str:
         if not text:
@@ -179,7 +202,6 @@ class Radare2SubprocessBackend:
         for cmd in (
             f"e log.file={self._log_path}",
             "e log.level=2",
-            "e log.cons=false",
             "e log.quiet=false",
         ):
             try:
@@ -206,13 +228,12 @@ class Radare2SubprocessBackend:
         if self._log_path:
             self._drain_logs()
 
-    def _merge_output(self, text: str, logs: str) -> str:
+    def _merge_output(self, *chunks: str) -> str:
         parts: List[str] = []
-        if text:
-            parts.append(text)
-        if logs:
-            parts.append(logs)
-        return "\n".join(part for part in parts if part)
+        for chunk in chunks:
+            if chunk:
+                parts.append(chunk)
+        return "\n".join(parts)
 
     def _update_prompt(self) -> None:
         if self._r2 is None:
