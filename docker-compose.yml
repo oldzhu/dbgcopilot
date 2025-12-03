@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  app:
+    image: dbgcopilot-dev:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY}
+        HTTPS_PROXY: ${HTTPS_PROXY}
+        NO_PROXY: ${NO_PROXY}
+    volumes:
+      - ./:/workspace:rw
+    working_dir: /workspace
+    command: bash
+    stdin_open: true
+    tty: true

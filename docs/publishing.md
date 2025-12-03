@@ -26,8 +26,10 @@ End users can try the project through one of three delivery channels while we pu
     ```bash
     gh release create v0.0.1-pre dist/dbgcopilot-0.0.1-py3-none-any.whl dist/dbgcopilot-0.0.1.tar.gz \
        src/dbgagent/dist/dbgagent-0.0.1-py3-none-any.whl \
+       Dockerfile docker-compose.yml \
        --prerelease --title "v0.0.1-pre" --notes "Pre-release for early testing"
     ```
+   Also include the `Dockerfile`/`docker-compose.yml` used to build the image so testers can download the artifacts and run `docker build` or `docker compose build` themselves while the published image is pending.
 4. Document in the release notes that testers should install the wheel directly from GitHub and that the system-level debugger toolchain (GDB, LLDB, Delve, Radare2, Rust/Go toolchains, JDK) must still be installed manually. The dev container already ships with `gh`, so you can run `gh release create ...` directly inside it.
 5. Share the raw download URLs with testers so they can install both wheels:
    ```bash

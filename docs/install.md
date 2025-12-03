@@ -52,24 +52,12 @@ Keep an eye on the release notes; the PyPI wheels will include the same scripts 
 ## Additional ways to use & test
 
 ### Clone + Dev Container
-Clone the repo, open it in VS Code (with Remote-Containers) or use the `devcontainer` CLI so you get the same image above. Inside that environment you can rebuild/install/test just like the developer workflow but without manual dependency installation:
-
-```bash
-docker pull oldzhu/dbgcopilot-dev:latest
-docker run --rm -it -v "$PWD":/workspace -w /workspace oldzhu/dbgcopilot-dev:latest bash
-# Inside the container run the familiar commands:
-dbgcopilot --help
-dbgagent --help
-python -m pytest tests/test_smoke_structure.py
-```
-
-### Docker image (pending publication)
-The published Docker image (`oldzhu/dbgcopilot-dev:latest`) is not available yet. Once it ships, you can skip installing Python packages locally by pulling and running the container while mounting whatever workspace or examples you want to exercise:
+Clone the repo, open it in VS Code (with Remote-Containers) or use the `devcontainer` CLI so you get the same image as the published Docker build. Inside that environment you can rebuild/install/test just like the developer workflow but without manual dependency installation:
 
 ```bash
 git clone https://github.com/oldzhu/dbgcopilot.git
 cd dbgcopilot
-# The dev container pre-installs the toolchain; rebuild the wheels if you prefer:
+# Build the packages if you want to override the prebuilt wheels:
 python -m build
 cd src/dbgagent && python -m build
 cd -
@@ -80,6 +68,33 @@ dbgagent --help
 python -m pytest tests/test_smoke_structure.py
 ```
 You can also install `dbgagent` in editable mode (`pip install -e src/dbgagent`) when hacking on the CLI itself.
+
+### Docker image (pending publication)
+The published Docker image (`oldzhu/dbgcopilot-dev:latest`) is not available yet. Once it ships, you can skip installing Python packages locally by pulling and running the container while mounting whatever workspace or examples you want to exercise. Until then, you can build the same image locally with either `docker build` or `docker compose build` once you download the released `Dockerfile`/`docker-compose.yml` artifacts:
+
+```bash
+docker pull oldzhu/dbgcopilot-dev:latest
+docker run --rm -it -v "$PWD":/workspace -w /workspace oldzhu/dbgcopilot-dev:latest bash
+# Inside the container run the familiar commands:
+dbgcopilot --help
+dbgagent --help
+python -m pytest tests/test_smoke_structure.py
+```
+
+If you prefer to build yourself, grab the released `Dockerfile` and `docker-compose.yml` from the release assets and run:
+
+```bash
+# Download the Dockerfile and docker-compose.yml from the GitHub release:
+wget https://github.com/oldzhu/dbgcopilot/releases/download/v0.0.1-pre/Dockerfile
+wget https://github.com/oldzhu/dbgcopilot/releases/download/v0.0.1-pre/docker-compose.yml
+
+# Build the image:
+docker build -t dbgcopilot-dev .
+# or with docker compose:
+docker compose build
+docker compose run --rm app bash
+```
+Inside the container you can reuse the same smoke-test commands (`dbgcopilot --help`, `dbgagent --help`, `python -m pytest tests/test_smoke_structure.py`).
 
 ## Summary
 This environment now mirrors what end users experience when they install the pip release. For developer workflows or publishing steps, see [`README.md`](../README.md) and [`docs/publishing.md`](publishing.md).
