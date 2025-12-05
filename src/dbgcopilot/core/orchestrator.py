@@ -260,7 +260,12 @@ class CopilotOrchestrator:
             parts.append(color_text(explanation, "green", enable=colors))
         parts.append("Proposed debugger command:")
         label = (getattr(self.backend, "name", "debugger") or "debugger")
-        parts.append(_prefix_dbg_echo(command, self.backend, colors=colors))
+        cmd_line = (
+            color_text(command, "cyan", bold=True, enable=colors)
+            if colors
+            else f"`{command}`"
+        )
+        parts.append(cmd_line)
         parts.append("Run it? (y(es)/n(o)/a(uto yes))")
         proposal = {
             "type": "command_proposal",
@@ -407,8 +412,6 @@ class CopilotOrchestrator:
                     display_text = (explanation or answer).strip()
                     auto_mode = getattr(self.state, "auto_accept_commands", False)
                     streamed = False
-                    if auto_mode and display_text:
-                        streamed = self._emit_chat(display_text)
 
                     match = re.search(r"<cmd>\s*([\s\S]*?)\s*</cmd>", answer, re.IGNORECASE)
                     if match:
@@ -420,7 +423,22 @@ class CopilotOrchestrator:
                                 confirm = self._format_confirmation_prompt(answer, exec_cmd)
                                 segments = [notice, confirm] if notice else [confirm]
                                 return "\n".join(seg for seg in segments if seg)
-                            result = self._execute_with_followup(exec_cmd, preface=display_text or None, auto_loop=True)
+                            colors = getattr(self.state, "colors_enabled", True)
+                            payload_lines: list[str] = []
+                            if display_text:
+                                payload_lines.append(
+                                    color_text(display_text, "green", enable=colors) if colors else display_text
+                                )
+                            cmd_echo = (
+                                color_text(exec_cmd, "cyan", bold=True, enable=colors)
+                                if colors
+                                else f"`{exec_cmd}`"
+                            )
+                            payload_lines.append(f"Auto-approved debugger command:\n{cmd_echo}")
+                            payload = "\n\n".join(line for line in payload_lines if line)
+                            if payload:
+                                streamed = self._emit_chat(payload, color=None)
+                            result = self._execute_with_followup(exec_cmd, auto_loop=True)
                             if notice:
                                 segments = [result, notice]
                                 return "\n".join(seg for seg in segments if seg)
@@ -428,6 +446,8 @@ class CopilotOrchestrator:
                         self.state.pending_command = exec_cmd
                         return self._format_confirmation_prompt(answer, exec_cmd)
 
+                    if auto_mode and display_text and not streamed:
+                        streamed = self._emit_chat(display_text)
                     colors = getattr(self.state, "colors_enabled", True)
                     result = color_text(answer, "green", enable=colors) if colors else answer
                     if auto_mode and streamed and getattr(self.state, "last_answer_streamed", False):
